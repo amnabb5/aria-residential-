@@ -1,0 +1,22 @@
+================================================================
+  REAL 3D MODELS — DROP YOUR .glb FILES HERE
+================================================================
+
+When your real 3D models are ready:
+
+1. Drop your building model here:
+     public/models/main-building.glb
+
+2. Drop your apartment models here:
+     public/models/apartments/apartment-3.glb
+     public/models/apartments/penthouse-12.glb
+     ...etc
+
+3. Edit src/config/assets.ts:
+     - Set USE_PLACEHOLDER_MODELS = false
+     - Add your apartment paths to apartmentModelMap, e.g.:
+         '3-A': '/models/apartments/apartment-3.glb',
+
+That's it — no other code changes needed.
+See README.md for full details and camera-tweak coordinates.
+================================================================

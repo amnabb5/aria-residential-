@@ -1,0 +1,480 @@
+'use client';
+
+/**
+ * PersistentCityCanvas — a SINGLE <Canvas> that stays mounted across LANDING,
+ * CITY_ORBIT, and ZOOM_TRANSITION stages.
+ *
+ * WHY: previously two separate <Canvas> components existed (LandingScene +
+ * CityExperience). When the user toggled between Landing and "Choose Apartment",
+ * the old canvas unmounted (GPU resources destroyed) and the new one mounted
+ * (re-download, re-decode, re-upload of the 41 MB GLB + 18 MB HDRI). Now the
+ * model + HDRI load ONCE and persist until the user enters WALKTHROUGH (which
+ * needs its own canvas for Gaussian splats).
+ *
+ * Camera behaviour changes with the stage:
+ *   LANDING          → scroll-driven keyframe interpolation (ported from LandingScene)
+ *   CITY_ORBIT       → OrbitControls with auto-rotate (ported from CameraDirector)
+ *   ZOOM_TRANSITION  → GSAP tween toward the facade (ported from CameraDirector)
+ *
+ * Mobile optimisations (all quality-neutral):
+ *   • DPR capped at [0.65, 0.9] (imperceptible on small screens)
+ *   • Antialiasing disabled
+ *   • Stencil buffer disabled
+ *   • powerPreference: 'high-performance'
+ *   • frameloop 'demand' during landing (scroll-driven invalidation)
+ *   • Extra lights (directional + hemisphere) skipped on mobile
+ *   • On-demand rendering when idle (no continuous loop during LANDING scroll)
+ */
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Environment, OrbitControls, Preload } from '@react-three/drei';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import gsap from 'gsap';
+import * as THREE from 'three';
+import { useAppStore, landingCameraRef, type Stage } from '@/state/useAppStore';
+import { MainBuildingModel } from '@/components/three/MainBuildingModel';
+import { LoadingOverlay } from '@/components/three/LoadingOverlay';
+import { CameraReporter, DebugHUD } from '@/components/debug/DebugHUD';
+import { HDRI_PATH } from '@/config/assets';
+import { getRenderProfile, isMobileDevice } from '@/config/perf';
+import { BUILDING_CONFIG, floorWorldY } from '@/config/apartments';
+
+THREE.ColorManagement.enabled = true;
+
+// ─── Scroll-driven camera keyframes ──────────────────────────────────────────
+interface Keyframe {
+  progress: number;
+  pos: [number, number, number];
+  target: [number, number, number];
+  label: string;
+}
+const KEYFRAMES: Keyframe[] = [
+  { progress: 0.0, pos: [161.1, 37.58, 10.93], target: [77.09, 67.22, -1.63], label: 'Hero' },
+  { progress: 0.2, pos: [122, 37, 76],          target: [77, 67, -2],          label: 'About' },
+  { progress: 0.4, pos: [42, 22, 59],           target: [77, 40, -2],          label: 'Amenities' },
+  { progress: 0.6, pos: [-50, 75, -10],         target: [77, 50, -2],          label: 'Location' },
+  { progress: 0.8, pos: [30, 45, -85],          target: [77, 60, -2],          label: 'Gallery' },
+  { progress: 1.0, pos: [130, 35, -85],         target: [77, 60, -2],          label: 'Contact' },
+];
+
+function lerpKF(a: Keyframe, b: Keyframe, t: number, out: Keyframe): Keyframe {
+  out.pos[0] = THREE.MathUtils.lerp(a.pos[0], b.pos[0], t);
+  out.pos[1] = THREE.MathUtils.lerp(a.pos[1], b.pos[1], t);
+  out.pos[2] = THREE.MathUtils.lerp(a.pos[2], b.pos[2], t);
+  out.target[0] = THREE.MathUtils.lerp(a.target[0], b.target[0], t);
+  out.target[1] = THREE.MathUtils.lerp(a.target[1], b.target[1], t);
+  out.target[2] = THREE.MathUtils.lerp(a.target[2], b.target[2], t);
+  return out;
+}
+
+function keyframeAt(progress: number, out: Keyframe): Keyframe {
+  const kfs = KEYFRAMES;
+  if (progress <= kfs[0].progress) return Object.assign(out, kfs[0]);
+  if (progress >= kfs[kfs.length - 1].progress)
+    return Object.assign(out, kfs[kfs.length - 1]);
+  for (let i = 0; i < kfs.length - 1; i++) {
+    const a = kfs[i];
+    const b = kfs[i + 1];
+    if (progress >= a.progress && progress <= b.progress) {
+      const t = (progress - a.progress) / (b.progress - a.progress);
+      return lerpKF(a, b, t, out);
+    }
+  }
+  return Object.assign(out, kfs[0]);
+}
+
+// ─── Camera constants ────────────────────────────────────────────────────────
+const ORBIT_CAMERA_DEFAULT: [number, number, number] = [161.1, 37.58, 10.93];
+const ORBIT_TARGET: [number, number, number] = [77.09, 67.22, -1.63];
+const ORBIT_FOV = isMobileDevice() ? 62 : 50;
+const ORBIT_AUTOROTATE_SPEED = 0.4;
+const ZOOM_DURATION = 2.4;
+const ZOOM_FOV_END = 35;
+const FACADE_OFFSET = 30;
+
+/**
+ * PHONES: landing page shows no 3D (static gradient). The model loads only
+ * when entering CITY_ORBIT. Desktop renders the full scroll-driven 3D city
+ * as the landing background.
+ */
+const MOBILE_3D_ON_LANDING = false;
+
+// ─── Detect mobile once ──────────────────────────────────────────────────────
+function useIsMobile() {
+  const [m] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      (window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768)
+  );
+  return m;
+}
+
+// ─── Unified camera controller (lives INSIDE the Canvas) ─────────────────────
+function UnifiedCameraController({
+  scrollProgressRef,
+}: {
+  scrollProgressRef: React.MutableRefObject<number>;
+}) {
+  const { camera, invalidate } = useThree();
+  const stage = useAppStore((s) => s.stage);
+  const selectedFloor = useAppStore((s) => s.selectedFloor);
+  const setStage = useAppStore((s) => s.setStage);
+  const debug = useAppStore((s) => s.debug);
+
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  const lookTarget = useRef(new THREE.Vector3(...ORBIT_TARGET));
+  const tweenRef = useRef<gsap.core.Timeline | null>(null);
+
+  // Scroll-camera scratch refs (avoid per-frame allocation).
+  const smoothP = useRef(0);
+  const kfScratch = useRef<Keyframe>({
+    progress: 0, pos: [0, 0, 0], target: [0, 0, 0], label: '',
+  });
+  const scratchPos = useRef(new THREE.Vector3());
+  const scratchTarget = useRef(new THREE.Vector3());
+  const settleDistanceSq = 0.01 * 0.01;
+
+  /** Track which stage we're coming FROM so we can do one-time transitions. */
+  const prevStageRef = useRef<Stage>(stage);
+
+  // Listen for the custom landing-scroll event to invalidate the demand canvas.
+  useEffect(() => {
+    const onScroll = () => invalidate();
+    window.addEventListener('landing-scene-scroll', onScroll);
+    return () => window.removeEventListener('landing-scene-scroll', onScroll);
+  }, [invalidate]);
+
+  // ── Initial camera setup ──────────────────────────────────────────────────
+  useEffect(() => {
+    const cam = camera as THREE.PerspectiveCamera;
+    cam.fov = ORBIT_FOV;
+    cam.near = 0.5;
+    cam.far = 3000;
+    cam.position.set(...KEYFRAMES[0].pos);
+    lookTarget.current.set(...ORBIT_TARGET);
+    cam.updateProjectionMatrix();
+    cam.lookAt(lookTarget.current);
+  }, [camera]);
+
+  // ── Stage-transition logic ────────────────────────────────────────────────
+
+  // LANDING → CITY_ORBIT: hand off camera smoothly
+  useEffect(() => {
+    if (stage !== 'CITY_ORBIT' && stage !== 'LANDING_TO_CITY_TRANSITION') return;
+    const cam = camera as THREE.PerspectiveCamera;
+    cam.fov = ORBIT_FOV;
+    cam.updateProjectionMatrix();
+
+    // If we came from LANDING, keep camera where scroll left it (seamless).
+    // If we came from WALKTHROUGH, reset to default.
+    if (prevStageRef.current === 'WALKTHROUGH' || prevStageRef.current === 'ZOOM_TRANSITION') {
+      cam.position.set(...ORBIT_CAMERA_DEFAULT);
+      lookTarget.current.set(...ORBIT_TARGET);
+      cam.lookAt(lookTarget.current);
+    }
+    // else (from LANDING): camera is already where the scroll left it — don't snap.
+
+    // Sync OrbitControls target
+    const controls = controlsRef.current;
+    if (controls) {
+      controls.target.copy(lookTarget.current);
+      controls.update();
+    }
+
+    prevStageRef.current = stage;
+    invalidate();
+  }, [stage, camera, invalidate]);
+
+  // CITY_ORBIT → LANDING: publish camera position for the scroll camera to pick up.
+  useEffect(() => {
+    if (stage !== 'LANDING') return;
+    const cam = camera as THREE.PerspectiveCamera;
+    // Snap the scroll progress smoothed value to the beginning when returning
+    smoothP.current = scrollProgressRef.current;
+    prevStageRef.current = stage;
+    cam.fov = ORBIT_FOV;
+    cam.updateProjectionMatrix();
+    invalidate();
+  }, [stage, camera, invalidate, scrollProgressRef]);
+
+  // ZOOM_TRANSITION: kick off the GSAP tween
+  useEffect(() => {
+    if (stage !== 'ZOOM_TRANSITION' || !selectedFloor) return;
+    prevStageRef.current = stage;
+
+    const cam = camera as THREE.PerspectiveCamera;
+    const floorY = floorWorldY(selectedFloor);
+    const fx = BUILDING_CONFIG.facadeTarget[0];
+    const fz = BUILDING_CONFIG.facadeTarget[2];
+
+    const dx = ORBIT_CAMERA_DEFAULT[0] - fx;
+    const dz = ORBIT_CAMERA_DEFAULT[2] - fz;
+    const len = Math.hypot(dx, dz) || 1;
+    const nx = dx / len;
+    const nz = dz / len;
+
+    const endPos = {
+      x: fx + nx * FACADE_OFFSET,
+      y: floorY,
+      z: fz + nz * FACADE_OFFSET,
+    };
+    const endTarget = { x: fx, y: floorY, z: fz };
+
+    const tl = gsap.timeline({
+      defaults: { duration: ZOOM_DURATION, ease: 'power2.inOut' },
+      onUpdate: () => invalidate(),
+      onComplete: () => setStage('WALKTHROUGH'),
+    });
+
+    tl.to(cam.position, endPos, 0);
+    tl.to(lookTarget.current, endTarget, 0);
+    tl.to(
+      cam,
+      { fov: ZOOM_FOV_END, onUpdate: () => cam.updateProjectionMatrix() },
+      0
+    );
+
+    tweenRef.current = tl;
+    return () => {
+      tl.kill();
+      tweenRef.current = null;
+    };
+  }, [stage, selectedFloor, camera, setStage, invalidate]);
+
+  // ── Per-frame logic ─────────────────────────────────────────────────────────
+  useFrame((_, delta) => {
+    const currentStage = useAppStore.getState().stage;
+    const currentDebug = useAppStore.getState().debug;
+
+    // ZOOM_TRANSITION: just keep looking at the tweened target.
+    if (currentStage === 'ZOOM_TRANSITION') {
+      camera.lookAt(lookTarget.current);
+      return;
+    }
+
+    // CITY_ORBIT: OrbitControls handle everything (via makeDefault).
+    if (currentStage === 'CITY_ORBIT' || currentStage === 'LANDING_TO_CITY_TRANSITION') {
+      return;
+    }
+
+    // LANDING: scroll-driven camera (skip if debug — OrbitControls take over).
+    if (currentStage === 'LANDING' && !currentDebug) {
+      const dt = Math.min(delta, 0.05);
+      smoothP.current = THREE.MathUtils.damp(
+        smoothP.current,
+        scrollProgressRef.current,
+        6,
+        dt
+      );
+      const kfNow = keyframeAt(smoothP.current, kfScratch.current);
+
+      scratchPos.current.set(kfNow.pos[0], kfNow.pos[1], kfNow.pos[2]);
+      scratchTarget.current.set(kfNow.target[0], kfNow.target[1], kfNow.target[2]);
+
+      const cam = camera as THREE.PerspectiveCamera;
+      const cameraSettled =
+        cam.position.distanceToSquared(scratchPos.current) < settleDistanceSq &&
+        lookTarget.current.distanceToSquared(scratchTarget.current) < settleDistanceSq;
+      if (cameraSettled) return;
+
+      cam.position.x = THREE.MathUtils.damp(cam.position.x, kfNow.pos[0], 5, dt);
+      cam.position.y = THREE.MathUtils.damp(cam.position.y, kfNow.pos[1], 5, dt);
+      cam.position.z = THREE.MathUtils.damp(cam.position.z, kfNow.pos[2], 5, dt);
+      lookTarget.current.x = THREE.MathUtils.damp(lookTarget.current.x, kfNow.target[0], 5, dt);
+      lookTarget.current.y = THREE.MathUtils.damp(lookTarget.current.y, kfNow.target[1], 5, dt);
+      lookTarget.current.z = THREE.MathUtils.damp(lookTarget.current.z, kfNow.target[2], 5, dt);
+      cam.lookAt(lookTarget.current);
+
+      // Publish for hand-off to CITY_ORBIT.
+      landingCameraRef.current = {
+        position: [cam.position.x, cam.position.y, cam.position.z],
+        target: [lookTarget.current.x, lookTarget.current.y, lookTarget.current.z],
+      };
+      invalidate();
+    }
+  });
+
+  // ── OrbitControls: rendered only during CITY_ORBIT ──────────────────────────
+  return (
+    <>
+      {(stage === 'CITY_ORBIT' || stage === 'LANDING_TO_CITY_TRANSITION') && (
+        <OrbitControls
+          ref={controlsRef}
+          makeDefault
+          enablePan={debug}
+          autoRotate={!debug}
+          autoRotateSpeed={ORBIT_AUTOROTATE_SPEED}
+          enableDamping
+          dampingFactor={0.08}
+          minDistance={debug ? 0.1 : 40}
+          maxDistance={debug ? 5000 : 260}
+          minPolarAngle={debug ? 0 : Math.PI * 0.12}
+          maxPolarAngle={debug ? Math.PI : Math.PI * 0.52}
+        />
+      )}
+
+      {/* Debug-mode orbit on landing so you can find keyframe coordinates. */}
+      {stage === 'LANDING' && debug && (
+        <DebugOrbitLanding lookTarget={lookTarget} />
+      )}
+    </>
+  );
+}
+
+/** Debug-mode orbit controls on landing (unlocked). */
+function DebugOrbitLanding({
+  lookTarget,
+}: {
+  lookTarget: React.MutableRefObject<THREE.Vector3>;
+}) {
+  const ref = useRef<OrbitControlsImpl | null>(null);
+  useEffect(() => {
+    const controls = ref.current;
+    if (!controls) return;
+    controls.target.copy(lookTarget.current);
+    controls.update();
+  }, [lookTarget]);
+
+  return (
+    <OrbitControls
+      ref={ref}
+      makeDefault
+      enablePan
+      enableDamping
+      dampingFactor={0.08}
+      minDistance={0.1}
+      maxDistance={5000}
+      minPolarAngle={0}
+      maxPolarAngle={Math.PI}
+    />
+  );
+}
+
+// ─── Main exported component ─────────────────────────────────────────────────
+export default function PersistentCityCanvas() {
+  const stage = useAppStore((s) => s.stage);
+  const debug = useAppStore((s) => s.debug);
+  const isMobile = useIsMobile();
+  const hudRef = useRef<HTMLDivElement>(null);
+  const scrollProgressRef = useRef(0);
+
+  const renderProfile = useMemo(() => getRenderProfile(), []);
+
+  // On mobile during LANDING: no 3D (gradient fallback). But during CITY_ORBIT
+  // / ZOOM_TRANSITION we always show the 3D canvas.
+  const show3D =
+    stage !== 'LANDING' || !isMobile || MOBILE_3D_ON_LANDING;
+
+  // Determine the frameloop mode: 'demand' during scroll-driven landing
+  // (only re-render on scroll events), 'always' during orbit/zoom/debug.
+  const frameloop: 'always' | 'demand' =
+    stage === 'LANDING' && !debug ? 'demand' : 'always';
+
+  // ── Scroll progress tracking (only needed during LANDING) ─────────────────
+  useEffect(() => {
+    if (stage !== 'LANDING' || !show3D) return;
+    let rafId = 0;
+
+    const updateProgress = () => {
+      rafId = 0;
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - window.innerHeight;
+      scrollProgressRef.current = max > 0 ? window.scrollY / max : 0;
+      window.dispatchEvent(new Event('landing-scene-scroll'));
+    };
+
+    const requestProgressUpdate = () => {
+      if (rafId) return;
+      rafId = window.requestAnimationFrame(updateProgress);
+    };
+
+    requestProgressUpdate();
+    window.addEventListener('scroll', requestProgressUpdate, { passive: true });
+    window.addEventListener('resize', requestProgressUpdate);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      window.removeEventListener('scroll', requestProgressUpdate);
+      window.removeEventListener('resize', requestProgressUpdate);
+    };
+  }, [stage, show3D]);
+
+  // Phones on landing: static dusk-sky gradient (zero download cost).
+  if (!show3D) {
+    return (
+      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#3a4a6b] via-[#232b3d] to-[#141821]" />
+    );
+  }
+
+  // ── z-index logic ──
+  // LANDING: canvas behind content (z-0). CITY_ORBIT/ZOOM_TRANSITION: on top (z-40).
+  const isLanding = stage === 'LANDING';
+
+  return (
+    <div
+      className={`fixed inset-0 ${isLanding ? 'z-0' : 'z-40 bg-background'}`}
+    >
+      <Canvas
+        frameloop={frameloop}
+        resize={isLanding ? { scroll: false, debounce: { scroll: 120, resize: 120 } } : undefined}
+        dpr={
+          renderProfile.mobile
+            ? [0.65, 0.9]        // Phone: lower DPR ceiling
+            : isLanding
+              ? [1, 1.5]         // Desktop landing: moderate
+              : [1, 2]           // Desktop orbit: full quality
+        }
+        gl={{
+          antialias: !renderProfile.mobile, // Skip AA on phones
+          alpha: false,
+          depth: true,
+          stencil: false,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          powerPreference: renderProfile.mobile ? 'high-performance' : 'default',
+        }}
+        onCreated={({ gl }) => {
+          gl.outputColorSpace = THREE.SRGBColorSpace;
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 0.92;
+          gl.shadowMap.enabled = false;
+        }}
+        camera={{
+          fov: ORBIT_FOV,
+          near: 0.5,
+          far: 3000,
+          position: KEYFRAMES[0].pos,
+        }}
+      >
+        {/* HDRI environment — lighting + visible sky. */}
+        <Environment
+          files={HDRI_PATH}
+          background
+          backgroundBlurriness={isLanding ? 0.03 : 0}
+          environmentIntensity={1}
+        />
+
+        {/* Extra lights only on desktop landing for stronger form. */}
+        {!renderProfile.mobile && isLanding && (
+          <>
+            <directionalLight
+              position={[125, 180, 90]}
+              intensity={1.1}
+              color="#ffe3bd"
+            />
+            <hemisphereLight args={['#dfefff', '#5a5048', 0.22]} />
+          </>
+        )}
+
+        <Suspense fallback={null}>
+          <MainBuildingModel />
+        </Suspense>
+
+        <UnifiedCameraController scrollProgressRef={scrollProgressRef} />
+        <CameraReporter hudRef={hudRef} />
+        <Preload all />
+      </Canvas>
+
+      <LoadingOverlay />
+      <DebugHUD hudRef={hudRef} />
+    </div>
+  );
+}

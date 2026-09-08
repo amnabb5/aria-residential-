@@ -1,0 +1,16 @@
+node_modules
+.next/cache
+.next/dev
+.next/static
+.next/types
+db
+download
+examples
+mini-services
+scripts
+dist
+public
+*.sog
+*.md
+Caddyfile
+.env

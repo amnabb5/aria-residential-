@@ -1,0 +1,64 @@
+/**
+ * ============================================================================
+ *  ASSET CONFIG  —  swap-in point for real 3D models + HDRI
+ * ============================================================================
+ *
+ *  Real models are now integrated:
+ *    - /public/models/main-building.glb   (city + main building)
+ *    - /public/models/apartments/apartment.glb  (shared interior for all units)
+ *    - /public/hdri/citrus_orchard_puresky_4k.hdr  (environment lighting)
+ *
+ *  USE_PLACEHOLDER_MODELS is false → the app loads the real GLBs via useGLTF.
+ * ============================================================================
+ */
+
+/**
+ * Master switch.
+ *  true  → render procedural placeholders
+ *  false → load real .glb files via useGLTF (CURRENT: real models are in)
+ */
+export const USE_PLACEHOLDER_MODELS = false;
+
+/**
+ * Path to the real main-building / city model.
+ */
+export const MAIN_BUILDING_MODEL = '/models/main-building.glb';
+
+/**
+ * Shared apartment interior model. Today every unit maps to this one splat
+ * scene. (.ksplat = the library's pre-packaged format: cache-optimized splat
+ * ordering + compression → faster loads, same visual quality. See
+ * scripts/convert-ksplat.mjs to regenerate.)
+ * (Per-unit overrides can be added in `apartmentModelMap` below.)
+ */
+export const DEFAULT_APARTMENT_MODEL = '/models/apartments/ApartmentV2.fast.ksplat';
+
+/**
+ * Per-apartment GLB overrides. Keys follow `${floor}-${unit}` (e.g. "3-A").
+ * Any key NOT listed here falls back to DEFAULT_APARTMENT_MODEL.
+ */
+export const apartmentModelMap: Record<string, string> = {
+  // add per-unit overrides here when distinct models exist
+};
+
+/**
+ * HDRI environment map — used by both scenes for PBR lighting/reflections,
+ * and as the visible sky in the city scene.
+ */
+export const HDRI_PATH = '/hdri/citrus_orchard_puresky_4k.hdr';
+
+/**
+ * Draco decoder path (drei's useGLTF supports Draco-compressed GLBs).
+ */
+export const DRACO_DECODER_PATH =
+  'https://www.gstatic.com/draco/versioned/decoders/1.5.6/';
+
+/**
+ * Resolve the GLB URL for a given apartment key.
+ * Falls back to DEFAULT_APARTMENT_MODEL so every apartment is walkable today.
+ * Returns `null` only if both the map and the default are unset.
+ */
+export function resolveApartmentModelUrl(apartmentKey: string): string | null {
+  return apartmentModelMap[apartmentKey] ?? DEFAULT_APARTMENT_MODEL ?? null;
+}
+

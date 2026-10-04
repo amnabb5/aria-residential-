@@ -6,7 +6,7 @@
     "dev": "next dev -p 3000",
     "build": "next build && node scripts/prepare-deploy.mjs",
     "dist": "npm run build && node scripts/package-deploy.mjs",
-    "start": "node .next/standalone/server.js",
+    "start": "node -e \"process.env.HOSTNAME='0.0.0.0'; require('./.next/standalone/server.js')\"",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

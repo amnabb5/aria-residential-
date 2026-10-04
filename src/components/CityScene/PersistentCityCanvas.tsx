@@ -105,11 +105,11 @@ const ZOOM_FOV_END = 35;
 const FACADE_OFFSET = 30;
 
 /**
- * PHONES: landing page shows no 3D (static gradient). The model loads only
- * when entering CITY_ORBIT. Desktop renders the full scroll-driven 3D city
- * as the landing background.
+ * Render the optimized mobile city model on the landing page as well as on
+ * desktop. MainBuildingModel selects the smaller phone GLB and mobile canvas
+ * settings keep its GPU cost within the phone profile.
  */
-const MOBILE_3D_ON_LANDING = false;
+const MOBILE_3D_ON_LANDING = true;
 
 // ─── Detect mobile once ──────────────────────────────────────────────────────
 function useIsMobile() {
@@ -393,8 +393,7 @@ export default function PersistentCityCanvas() {
 
   const renderProfile = useMemo(() => getRenderProfile(), []);
 
-  // On mobile during LANDING: no 3D (gradient fallback). But during CITY_ORBIT
-  // / ZOOM_TRANSITION we always show the 3D canvas.
+  // Mobile landing uses the optimized phone model; other stages always show 3D.
   const show3D =
     stage !== 'LANDING' || !isMobile || MOBILE_3D_ON_LANDING;
 
@@ -431,7 +430,7 @@ export default function PersistentCityCanvas() {
     };
   }, [stage, show3D]);
 
-  // Phones on landing: static dusk-sky gradient (zero download cost).
+  // Keep a gradient fallback available if mobile landing 3D is disabled.
   if (!show3D) {
     return (
       <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#3a4a6b] via-[#232b3d] to-[#141821]" />

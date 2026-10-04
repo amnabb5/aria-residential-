@@ -14,6 +14,7 @@ import {
   Wine,
 } from 'lucide-react';
 import { useTranslation, type DictionaryKey } from '@/i18n/dictionaries';
+import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 const FEATURES: {
   icon: React.ComponentType<{ className?: string }>;
@@ -36,7 +37,7 @@ export function Amenities() {
   return (
     <section id="amenities" className="py-20 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-2xl rounded-3xl border border-white/20 bg-background/70 p-8 text-center shadow-lg backdrop-blur-md">
+        <LiquidGlassSurface variant="panel" className="mx-auto max-w-2xl rounded-3xl p-8 text-center shadow-lg">
           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-600">
             {t('amenities_badge')}
           </span>
@@ -46,15 +47,16 @@ export function Amenities() {
           <p className="mt-4 text-base text-stone-600">
             {t('amenities_desc')}
           </p>
-        </div>
+        </LiquidGlassSurface>
 
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {FEATURES.map((f, i) => {
             const Icon = f.icon;
             return (
-              <div
+              <LiquidGlassSurface
                 key={i}
-                className="group rounded-2xl border border-white/20 bg-background/80 p-6 shadow-sm backdrop-blur-md transition hover:-translate-y-1 hover:shadow-md"
+                variant="panel"
+                className="group rounded-2xl p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
               >
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-100 text-amber-700 transition group-hover:bg-amber-600 group-hover:text-white">
                   <Icon className="h-5 w-5" />
@@ -65,7 +67,7 @@ export function Amenities() {
                 <p className="mt-1.5 text-sm leading-relaxed text-stone-600">
                   {t(f.descKey as DictionaryKey)}
                 </p>
-              </div>
+              </LiquidGlassSurface>
             );
           })}
         </div>

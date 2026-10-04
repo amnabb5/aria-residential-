@@ -196,7 +196,9 @@ export function GaussianSplat({
     loadedRef.current = false;
     setLoadError(null);
 
-    console.info(`[GaussianSplat] creating viewer for: ${src} (iso=${iso})`);
+    console.info(
+      `[GaussianSplat] creating viewer for: ${src} (iso=${iso}, gpuSortRequested=${gpuSort} → wasm sort)`
+    );
 
     const viewer = new DropInViewer({
       selfDrivenMode: false,
@@ -204,10 +206,23 @@ export function GaussianSplat({
       rootElement: null,
       dropInMode: true,
 
-      // Sorting: GPU-compute sort when the device tier allows it (offscreen
-      // GL context — crashes iGPUs, hence the explicit opt-in), else the WASM
-      // sort worker. gpuSort additionally requires cross-origin isolation.
-      gpuAcceleratedSort: gpuSort && iso,
+      // FIX (splats-invisible-after-Confirm): gpuAcceleratedSort MUST stay
+      // off on @mkkellogg/gaussian-splats-3d v0.4.7. In that version the
+      // GPU-sort path never uploads the splat centers to the sorter worker
+      // (Viewer.addSplatBuffers only queues `preSortMessages` when
+      // gpuAcceleratedSort is false), so the worker clamps every sort to
+      // `splatRenderCount = 0` and SplatMesh.updateRenderIndexes leaves
+      // `geometry.instanceCount = 0` — the scene loads "successfully" but
+      // zero splats are ever drawn. This is exactly the "3D world splats
+      // disappear after clicking Confirm" regression: devices with ≥8
+      // logical cores get the high-end render profile (gpuSort=true), and
+      // with the COOP/COEP headers set in next.config.ts the page is
+      // cross-origin isolated, so `gpuSort && iso` evaluated true.
+      // The SIMD WASM sort worker below is the reliable, off-thread path —
+      // same visual output, every splat rendered. All other tier-based
+      // optimization (DPR profiles, mobile asset selection, culling) is
+      // untouched.
+      gpuAcceleratedSort: false,
       sharedMemoryForWorkers: iso,
       enableSIMDInSort: true,
       // integerBasedSort stays OFF: per the library docs it can overflow on
@@ -228,6 +243,25 @@ export function GaussianSplat({
 
     viewerRef.current = viewer;
     containerRef.current.add(viewer as unknown as THREE.Object3D);
+
+    // FIX (splats-invisible-on-iOS-15.0–15.3): the Viewer constructor
+    // force-disables sharedMemoryForWorkers on iOS < 16 while its worker
+    // ALWAYS imports a `shared: true` WebAssembly.Memory. On iOS 15.0–15.3
+    // that combination selects the non-shared WASM binary and instantiation
+    // fails with "mismatch in shared state of memory" — the sorter never
+    // boots, addSplatScene() never resolves and the splats stay invisible.
+    // Re-asserting the flag post-construction (before addSplatScene) makes
+    // the binary selection coherent again: shared-memory-capable WASM plus
+    // the shared import it already passes. SAB is available here because the
+    // app ships COOP/COEP headers (crossOriginIsolated === true). On every
+    // other device this is a no-op (the value we assign equals what the
+    // option above already resolved to).
+    const innerViewer = (
+      viewer as unknown as { viewer?: { sharedMemoryForWorkers?: boolean } }
+    ).viewer;
+    if (innerViewer && iso) {
+      innerViewer.sharedMemoryForWorkers = true;
+    }
 
     // Give the viewer access to the R3F renderer and camera so it can
     // render splats into the correct context (required when selfDrivenMode

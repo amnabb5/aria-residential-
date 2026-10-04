@@ -33,6 +33,14 @@ interface GLTFModelProps {
   position?: [number, number, number];
   /** Optional rotation (radians). */
   rotation?: [number, number, number];
+  /**
+   * MOBILE memory cap: when true, every geometry/material/texture this model
+   * uploaded is disposed and the drei useGLTF cache entry is dropped when the
+   * component unmounts. Used ONLY on the mobile tier (see MainBuildingModel);
+   * desktop keeps the persistent cache (unchanged behavior — returning from
+   * the walkthrough re-shows the model without re-decoding).
+   */
+  disposeOnUnmount?: boolean;
 }
 
 export function GLTFModel({
@@ -40,9 +48,38 @@ export function GLTFModel({
   scale = 1,
   position = [0, 0, 0],
   rotation = [0, 0, 0],
+  disposeOnUnmount = false,
 }: GLTFModelProps) {
   // useGLTF(path, useDraco) — passing the decoder path enables Draco decoding.
   const { scene } = useGLTF(path, DRACO_DECODER_PATH);
+
+  // Mobile memory cap: hard-release this model's GPU footprint on unmount.
+  useEffect(() => {
+    if (!disposeOnUnmount) return;
+    return () => {
+      scene.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry?.dispose();
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((mat) => {
+          if (!mat) return;
+          // Dispose every texture slot the material owns.
+          const std = mat as THREE.MeshStandardMaterial;
+          for (const value of Object.values(std) as unknown as Array<{ isTexture?: boolean } | null | undefined>) {
+            if (value && typeof value === 'object' && value.isTexture) {
+              (value as unknown as THREE.Texture).dispose();
+            }
+          }
+          mat.dispose();
+        });
+      });
+      // Drop the CPU-side GLTF cache entry too (re-entering the city stage
+      // re-fetches from the browser HTTP cache — immutable 1-year headers —
+      // and re-decodes, trading a short hitch for a hard memory guarantee).
+      useGLTF.clear(path);
+    };
+  }, [scene, path, disposeOnUnmount]);
 
   // Enable shadows on every mesh + (dev only) report material health.
   useEffect(() => {

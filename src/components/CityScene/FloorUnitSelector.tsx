@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { prefetchAssets } from '@/lib/prefetch';
 import { isMobileDevice } from '@/config/perf';
 import { useEffect } from 'react';
+import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 export function FloorUnitSelector() {
   const selectedFloor = useAppStore((s) => s.selectedFloor);
@@ -64,7 +65,7 @@ export function FloorUnitSelector() {
 
       {/* Selector panel */}
       <div className="mt-auto p-3 sm:p-6">
-        <div className="pointer-events-auto mx-auto w-full max-w-4xl rounded-2xl border border-border/60 bg-background/80 p-4 shadow-2xl backdrop-blur-xl sm:p-6">
+        <LiquidGlassSurface variant="panel" className="pointer-events-auto mx-auto w-full max-w-4xl rounded-2xl p-4 sm:p-6">
           <div className="mb-4 flex items-end justify-between">
             <div>
               <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
@@ -163,7 +164,7 @@ export function FloorUnitSelector() {
           </div>
 
           {/* Confirm */}
-          <div className="flex items-center justify-between gap-3">
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/40 pt-4">
             <div className="min-w-0 text-xs text-muted-foreground">
               {selectedSpec ? (
                 <span className="truncate">
@@ -178,13 +179,13 @@ export function FloorUnitSelector() {
               onClick={confirmSelection}
               disabled={!canConfirm}
               size="lg"
-              className="shrink-0"
+              className="shrink-0 shadow-lg"
             >
               Confirm
               <ChevronRight className="ml-1 h-4 w-4" />
             </Button>
           </div>
-        </div>
+        </LiquidGlassSurface>
       </div>
     </div>
   );

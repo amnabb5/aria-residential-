@@ -5,6 +5,7 @@
  */
 import { Check } from 'lucide-react';
 import { useTranslation, type DictionaryKey } from '@/i18n/dictionaries';
+import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 const FEATURES: DictionaryKey[] = [
   'about_f1',
@@ -29,14 +30,14 @@ export function About() {
               loading="lazy"
             />
           </div>
-          <div className="absolute -bottom-6 -right-4 hidden rounded-2xl border border-border/60 bg-background/95 p-4 shadow-xl backdrop-blur sm:block">
+          <LiquidGlassSurface variant="chip" className="absolute -bottom-6 -right-4 hidden rounded-2xl p-4 shadow-xl sm:block">
             <div className="text-3xl font-semibold text-stone-900">4.9★</div>
             <div className="text-xs text-muted-foreground">Resident rating</div>
-          </div>
+          </LiquidGlassSurface>
         </div>
 
         {/* Copy */}
-        <div className="order-1 lg:order-2 rounded-3xl border border-white/20 bg-background/70 p-8 shadow-lg backdrop-blur-md sm:p-10">
+        <LiquidGlassSurface variant="panel" className="order-1 rounded-3xl p-8 shadow-lg lg:order-2 sm:p-10">
           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-600">
             {t('about_badge')}
           </span>
@@ -56,7 +57,7 @@ export function About() {
               </li>
             ))}
           </ul>
-        </div>
+        </LiquidGlassSurface>
       </div>
     </section>
   );

@@ -7,10 +7,12 @@
  */
 import { Building2 } from 'lucide-react';
 import { BUILDING_NAME } from '@/config/apartments';
+import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 export function Footer() {
   return (
-    <footer className="mt-auto border-t border-white/20 bg-background/70 backdrop-blur-md">
+    <footer className="mt-auto">
+      <LiquidGlassSurface variant="panel" className="rounded-none border-t border-white/20">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           <div>
@@ -58,6 +60,7 @@ export function Footer() {
           <p>3D walkthrough prototype · placeholders in use</p>
         </div>
       </div>
+      </LiquidGlassSurface>
     </footer>
   );
 }

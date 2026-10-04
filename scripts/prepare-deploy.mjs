@@ -48,6 +48,7 @@ async function main() {
   const ASSETS = [
     // 3D models & environment (see src/config/assets.ts, WalkthroughScene)
     'models/main-building.glb',
+    'models/main-building.mobile.glb', // mobile tier (1.5GB memory cap) — see MainBuildingModel
     'models/apartments/ApartmentV2.fast.ksplat',
     'models/la_night_full.ksplat',
     'models/la_night_mobile.ksplat', // phone backdrop (alpha-weighted)

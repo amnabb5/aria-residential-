@@ -91,6 +91,14 @@ declare module '@mkkellogg/gaussian-splats-3d' {
     dispose(): Promise<void>;
     /** The current splat mesh (null until a scene is loaded). */
     splatMesh: import('three').Mesh | null;
+    /**
+     * Present on some library versions; the app calls these defensively
+     * (try/catch) so they are declared optional here.
+     */
+    setRenderer?(renderer: import('three').WebGLRenderer): void;
+    setCamera?(camera: import('three').Camera): void;
+    /** The underlying Viewer instance (always present in drop-in mode). */
+    viewer: Viewer;
   }
 
   export class SplatBuffer {

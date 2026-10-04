@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useAppStore } from '@/state/useAppStore';
+import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 export function Contact() {
   const { toast } = useToast();
@@ -35,7 +36,8 @@ export function Contact() {
   return (
     <section id="contact" className="py-20 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-3xl border border-white/20 bg-background/70 shadow-lg backdrop-blur-md lg:grid lg:grid-cols-2">
+        <LiquidGlassSurface variant="panel" className="overflow-hidden rounded-3xl shadow-lg">
+          <div className="lg:grid lg:grid-cols-2">
           {/* Left: copy */}
           <div className="flex flex-col justify-center bg-gradient-to-br from-stone-900 to-stone-700 p-8 text-white sm:p-12">
             <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">
@@ -117,7 +119,8 @@ export function Contact() {
               By submitting, you agree to be contacted about availability.
             </p>
           </form>
-        </div>
+          </div>
+        </LiquidGlassSurface>
       </div>
     </section>
   );

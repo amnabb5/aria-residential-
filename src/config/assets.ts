@@ -25,6 +25,21 @@ export const USE_PLACEHOLDER_MODELS = false;
 export const MAIN_BUILDING_MODEL = '/models/main-building.glb';
 
 /**
+ * MOBILE-ONLY variant of the city model (Task: hard 1.5GB model-memory cap
+ * on phones). Same scene, materials and mesh structure as the desktop GLB —
+ * textures are capped at 1024px and the file is re-welded/Draco-recompressed
+ * (39.4MB → 11.1MB, render-lossless: weld only merges identical vertices and
+ * removes invisible degenerate triangles).
+ *
+ * GPU footprint (model + its assets, measured with resolution × 4B × 1.33
+ * mips summed per texture + vertex/index buffer bytes):
+ *   desktop GLB  ≈ 322.9MB geometry + ~230MB textures (webp) + HDRI
+ *   mobile  GLB  ≈ 138.8MB geometry +  ~64MB textures (worst-case) + HDRI
+ * Desktop NEVER loads this file — see MainBuildingModel.
+ */
+export const MAIN_BUILDING_MODEL_MOBILE = '/models/main-building.mobile.glb';
+
+/**
  * Shared apartment interior model. Today every unit maps to this one splat
  * scene. (.ksplat = the library's pre-packaged format: cache-optimized splat
  * ordering + compression → faster loads, same visual quality. See

@@ -38,6 +38,11 @@ import { CameraReporter, DebugHUD } from '@/components/debug/DebugHUD';
 import { HDRI_PATH } from '@/config/assets';
 import { getRenderProfile, isMobileDevice } from '@/config/perf';
 import { BUILDING_CONFIG, floorWorldY } from '@/config/apartments';
+import {
+  rooflineAt,
+  onCityHeightfieldReady,
+  CAMERA_CLEARANCE,
+} from '@/components/CityScene/cityHeightfield';
 
 THREE.ColorManagement.enabled = true;
 
@@ -48,13 +53,20 @@ interface Keyframe {
   target: [number, number, number];
   label: string;
 }
+// TOUR CAMERA FIX ("it enters houses and blocks the view"): the path's XZ
+// movement and every look-target are EXACTLY as they were — only the heights
+// were adjusted (raised a bit where the previous values grazed rooftops or
+// flew through the mid-rise blocks along the Gallery→Contact line). On top
+// of these keyframes the scroll camera applies the roofline guard (see
+// UnifiedCameraController / cityHeightfield.ts) so it can never dip inside
+// any building, whatever the interpolated position is.
 const KEYFRAMES: Keyframe[] = [
   { progress: 0.0, pos: [161.1, 37.58, 10.93], target: [77.09, 67.22, -1.63], label: 'Hero' },
   { progress: 0.2, pos: [122, 37, 76],          target: [77, 67, -2],          label: 'About' },
-  { progress: 0.4, pos: [42, 22, 59],           target: [77, 40, -2],          label: 'Amenities' },
+  { progress: 0.4, pos: [42, 30, 59],           target: [77, 40, -2],          label: 'Amenities' },
   { progress: 0.6, pos: [-50, 75, -10],         target: [77, 50, -2],          label: 'Location' },
-  { progress: 0.8, pos: [30, 45, -85],          target: [77, 60, -2],          label: 'Gallery' },
-  { progress: 1.0, pos: [130, 35, -85],         target: [77, 60, -2],          label: 'Contact' },
+  { progress: 0.8, pos: [30, 54, -85],          target: [77, 60, -2],          label: 'Gallery' },
+  { progress: 1.0, pos: [130, 48, -85],         target: [77, 60, -2],          label: 'Contact' },
 ];
 
 function lerpKF(a: Keyframe, b: Keyframe, t: number, out: Keyframe): Keyframe {
@@ -143,6 +155,10 @@ function UnifiedCameraController({
     window.addEventListener('landing-scene-scroll', onScroll);
     return () => window.removeEventListener('landing-scene-scroll', onScroll);
   }, [invalidate]);
+
+  // When the roofline map finishes building (async, after the GLB decodes)
+  // re-render once so the guard can lift the camera where needed.
+  useEffect(() => onCityHeightfieldReady(() => invalidate()), [invalidate]);
 
   // ── Initial camera setup ──────────────────────────────────────────────────
   useEffect(() => {
@@ -271,6 +287,20 @@ function UnifiedCameraController({
       scratchPos.current.set(kfNow.pos[0], kfNow.pos[1], kfNow.pos[2]);
       scratchTarget.current.set(kfNow.target[0], kfNow.target[1], kfNow.target[2]);
 
+      // ROOFLINE GUARD (tour anti-clipping): the keyframed altitude is a
+      // floor, not a promise — if the local city roofline under the camera
+      // is higher, the camera glides up to clear it (+4u margin). The XZ
+      // path and look-targets stay exactly as designed; only Y adapts, and
+      // through the same damped integrator as everything else, so the
+      // motion still feels like one continuous shot.
+      const roof = rooflineAt(scratchPos.current.x, scratchPos.current.z);
+      if (roof > 0) {
+        scratchPos.current.y = Math.max(
+          scratchPos.current.y,
+          roof + CAMERA_CLEARANCE
+        );
+      }
+
       const cam = camera as THREE.PerspectiveCamera;
       const cameraSettled =
         cam.position.distanceToSquared(scratchPos.current) < settleDistanceSq &&
@@ -278,7 +308,10 @@ function UnifiedCameraController({
       if (cameraSettled) return;
 
       cam.position.x = THREE.MathUtils.damp(cam.position.x, kfNow.pos[0], 5, dt);
-      cam.position.y = THREE.MathUtils.damp(cam.position.y, kfNow.pos[1], 5, dt);
+      // Y damps toward the GUARDED altitude (keyframe vs roofline, whichever
+      // is higher) — so the camera glides over buildings instead of through
+      // them, with the same easing as the rest of the rig.
+      cam.position.y = THREE.MathUtils.damp(cam.position.y, scratchPos.current.y, 5, dt);
       cam.position.z = THREE.MathUtils.damp(cam.position.z, kfNow.pos[2], 5, dt);
       lookTarget.current.x = THREE.MathUtils.damp(lookTarget.current.x, kfNow.target[0], 5, dt);
       lookTarget.current.y = THREE.MathUtils.damp(lookTarget.current.y, kfNow.target[1], 5, dt);

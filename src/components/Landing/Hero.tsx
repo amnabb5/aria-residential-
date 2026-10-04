@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/state/useAppStore';
 import { BUILDING_NAME } from '@/config/apartments';
 import { useTranslation } from '@/i18n/dictionaries';
+import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 export function Hero() {
   const setStage = useAppStore((s) => s.setStage);
@@ -36,28 +37,32 @@ export function Hero() {
               {t('hero_cta')}
               <ArrowRight className="ml-2 h-4 w-4 transition group-hover:translate-x-0.5" />
             </Button>
-            <Button size="lg" variant="outline" asChild className="border-white/40 bg-white/10 text-white shadow-lg backdrop-blur-sm hover:bg-white/20">
-              <a href="#gallery">
-                <Play className="mr-2 h-4 w-4" />
-                View Gallery
-              </a>
-            </Button>
+            <LiquidGlassSurface variant="cta" className="rounded-md shadow-lg">
+              <Button size="lg" variant="outline" asChild className="border-white/35 bg-transparent text-white hover:bg-white/10">
+                <a href="#gallery">
+                  <Play className="mr-2 h-4 w-4" />
+                  View Gallery
+                </a>
+              </Button>
+            </LiquidGlassSurface>
           </div>
 
-          <dl className="mt-12 grid grid-cols-3 gap-8 rounded-2xl border border-white/15 bg-black/30 px-8 py-6 backdrop-blur-sm">
-            {[
-              { k: '30', v: 'Floors' },
-              { k: '120', v: 'Residences' },
-              { k: '24/7', v: 'Concierge' },
-            ].map((s) => (
-              <div key={s.v}>
-                <dt className="text-3xl font-semibold text-white" style={{ textShadow: '0 1px 8px rgba(0,0,0,0.5)' }}>{s.k}</dt>
-                <dd className="mt-1 text-xs font-medium uppercase tracking-wider text-white/80">
-                  {s.v}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <LiquidGlassSurface variant="panel" className="mt-12 rounded-2xl px-8 py-6">
+            <dl className="grid grid-cols-3 gap-8">
+              {[
+                { k: '30', v: 'Floors' },
+                { k: '120', v: 'Residences' },
+                { k: '24/7', v: 'Concierge' },
+              ].map((s) => (
+                <div key={s.v}>
+                  <dt className="text-3xl font-semibold text-white" style={{ textShadow: '0 1px 8px rgba(0,0,0,0.5)' }}>{s.k}</dt>
+                  <dd className="mt-1 text-xs font-medium uppercase tracking-wider text-white/80">
+                    {s.v}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </LiquidGlassSurface>
         </div>
       </div>
     </section>

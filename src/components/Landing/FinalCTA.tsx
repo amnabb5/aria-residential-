@@ -13,34 +13,37 @@ import { ArrowRight, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAppStore } from '@/state/useAppStore';
 import { BUILDING_NAME } from '@/config/apartments';
+import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 export function FinalCTA() {
   const setStage = useAppStore((s) => s.setStage);
 
   return (
     <section className="px-4 py-24 sm:px-6 sm:py-32 lg:px-8">
-      <div className="mx-auto max-w-4xl overflow-hidden rounded-3xl border border-white/20 bg-background/70 p-8 text-center shadow-2xl backdrop-blur-xl sm:p-12">
-        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500 to-rose-500 text-white shadow-lg">
-          <Sparkles className="h-7 w-7" />
+      <LiquidGlassSurface variant="panel" className="mx-auto max-w-4xl rounded-3xl p-8 sm:p-12">
+        <div className="text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500 to-rose-500 text-white shadow-lg">
+            <Sparkles className="h-7 w-7" />
+          </div>
+          <h2 className="text-3xl font-semibold tracking-tight text-stone-900 sm:text-4xl">
+            Ready to find your home at {BUILDING_NAME}?
+          </h2>
+          <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-stone-600">
+            Pick your floor, choose your unit, and step inside for a first-person
+            walkthrough — all in your browser, no tour appointment needed.
+          </p>
+          <div className="mt-8">
+            <Button
+              size="lg"
+              onClick={() => setStage('LANDING_TO_CITY_TRANSITION')}
+              className="group h-14 px-8 text-base shadow-xl"
+            >
+              Choose Apartment
+              <ArrowRight className="ml-2 h-5 w-5 transition group-hover:translate-x-0.5" />
+            </Button>
+          </div>
         </div>
-        <h2 className="text-3xl font-semibold tracking-tight text-stone-900 sm:text-4xl">
-          Ready to find your home at {BUILDING_NAME}?
-        </h2>
-        <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-stone-600">
-          Pick your floor, choose your unit, and step inside for a first-person
-          walkthrough — all in your browser, no tour appointment needed.
-        </p>
-        <div className="mt-8">
-          <Button
-            size="lg"
-            onClick={() => setStage('LANDING_TO_CITY_TRANSITION')}
-            className="group h-14 px-8 text-base"
-          >
-            Choose Apartment
-            <ArrowRight className="ml-2 h-5 w-5 transition group-hover:translate-x-0.5" />
-          </Button>
-        </div>
-      </div>
+      </LiquidGlassSurface>
     </section>
   );
 }

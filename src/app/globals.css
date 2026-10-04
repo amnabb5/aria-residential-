@@ -116,7 +116,85 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
   body {
     @apply bg-background text-foreground;
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
+  /* Slim, unobtrusive scrollbars (WebKit + Firefox) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 22%, transparent) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--foreground) 20%, transparent);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklch, var(--foreground) 32%, transparent);
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  /* Consistent, accessible focus states */
+  :focus-visible {
+    outline: 2px solid color-mix(in oklch, var(--ring) 80%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Elevation presets shared by glass surfaces */
+  .shadow-glass-sm {
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.08),
+      0 8px 24px rgba(0, 0, 0, 0.14);
+  }
+  .shadow-glass-lg {
+    box-shadow:
+      0 2px 6px rgba(0, 0, 0, 0.1),
+      0 24px 64px rgba(0, 0, 0, 0.22);
+  }
+  /* Hairline inner border for translucent panels */
+  .ring-hairline {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  }
+  .text-shadow-hero {
+    text-shadow:
+      0 2px 16px rgba(0, 0, 0, 0.7),
+      0 1px 4px rgba(0, 0, 0, 0.5);
+  }
+}
+
+@layer components {
+  .nav-section-indicator {
+    position: absolute;
+    z-index: 0;
+    top: 50%;
+    left: 0;
+    height: 2.25rem;
+    border-radius: 0.75rem;
+    pointer-events: none;
+    transition:
+      transform 500ms cubic-bezier(0.22, 1, 0.36, 1),
+      width 500ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 200ms ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nav-section-indicator {
+      transition: none;
+    }
   }
 }

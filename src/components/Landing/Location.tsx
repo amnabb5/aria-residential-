@@ -5,6 +5,7 @@
  */
 import { MapPin, Navigation, Clock } from 'lucide-react';
 import { useTranslation } from '@/i18n/dictionaries';
+import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 const NEARBY = [
   { nameKey: 'loc_near_1', time: '5 min walk' },
@@ -42,7 +43,7 @@ export function Location() {
           </div>
 
           {/* Copy */}
-          <div className="flex flex-col justify-center rounded-3xl border border-white/20 bg-background/70 p-8 shadow-lg backdrop-blur-md">
+          <LiquidGlassSurface variant="panel" className="flex flex-col justify-center rounded-3xl p-8 shadow-lg">
             <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-600">
               {t('location_badge')}
             </span>
@@ -53,7 +54,7 @@ export function Location() {
               {t('location_desc')}
             </p>
 
-            <div className="mt-6 flex items-start gap-3 rounded-2xl border border-stone-200 bg-stone-50 p-4">
+            <LiquidGlassSurface variant="chip" className="mt-6 flex items-start gap-3 rounded-2xl p-4">
               <Navigation className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
               <div>
                 <div className="text-sm font-semibold text-stone-900">
@@ -63,13 +64,15 @@ export function Location() {
                   Open daily · 9:00 AM – 7:00 PM
                 </div>
               </div>
-            </div>
+            </LiquidGlassSurface>
 
-            <ul className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div role="list" className="mt-6 grid gap-3 sm:grid-cols-2">
               {NEARBY.map((n) => (
-                <li
+                <LiquidGlassSurface
                   key={n.nameKey}
-                  className="flex items-center justify-between rounded-xl border border-white/20 bg-background/80 px-4 py-3 backdrop-blur-md"
+                  variant="chip"
+                  role="listitem"
+                  className="flex items-center justify-between rounded-xl px-4 py-3"
                 >
                   <span className="text-sm font-medium text-stone-800">
                     {t(n.nameKey as keyof typeof import('@/i18n/dictionaries').DICTIONARY.en)}
@@ -78,10 +81,10 @@ export function Location() {
                     <Clock className="h-3 w-3" />
                     {n.time}
                   </span>
-                </li>
+                </LiquidGlassSurface>
               ))}
-            </ul>
-          </div>
+            </div>
+          </LiquidGlassSurface>
         </div>
       </div>
     </section>

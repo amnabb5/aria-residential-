@@ -19,7 +19,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
+import { Environment, PerformanceMonitor } from '@react-three/drei';
 import { GaussianSplat } from '@/components/three/GaussianSplat';
 import * as THREE from 'three';
 import { useAppStore } from '@/state/useAppStore';
@@ -80,6 +80,43 @@ const EXTERIOR_SPLAT_SRC = '/models/la_night_full.ksplat';
  * (Max-speed fallback: la_night_decimated.ksplat · max-quality: full.)
  */
 const EXTERIOR_SPLAT_MOBILE_SRC = '/models/la_night_mobile.ksplat';
+
+/**
+ * Adaptive DPR (60fps target, quality-neutral):
+ *
+ * The Canvas is created with the device profile's dpr RANGE
+ * (see getRenderProfile in config/perf.ts) — R3F starts at the top of the
+ * range, which is the full-quality setting. This component lets the runtime
+ * DOWN-shift inside that range only while the measured frame rate cannot
+ * hold ~55–60fps, and immediately restores full dpr when there is headroom
+ * again. On capable devices the factor stays at 1 → the renderer NEVER
+ * leaves its maximum quality; nothing is lost on desktop GPUs or newer
+ * phones. This makes the existing per-tier dpr ranges (which were declared
+ * but never actually adjusted at runtime) do their job.
+ *
+ * It deliberately touches ONLY the splat walkthrough's resolution scale —
+ * splat content, sort behavior, culling, asset selection and all other
+ * optimizations are untouched.
+ */
+function AdaptiveSplatResolution({ min, max }: { min: number; max: number }) {
+  const setDpr = useThree((s) => s.setDpr);
+  const clamp = (v: number) =>
+    Math.round(THREE.MathUtils.clamp(v, min, max) * 100) / 100;
+  return (
+    <PerformanceMonitor
+      ms={250}
+      iterations={10}
+      // Keep frame pacing in the 55–90fps band; below the lower bound the
+      // resolution yield kicks in, above it we climb back to full quality.
+      bounds={() => [55, 90]}
+      onChange={({ factor }) => setDpr(clamp(min + (max - min) * factor))}
+      // Too much oscillation → settle at a stable sustainable point instead
+      // of flip-flopping (protects the feel of the controls).
+      flipflops={3}
+      onFallback={() => setDpr(clamp(min + (max - min) * 0.4))}
+    />
+  );
+}
 
 export default function WalkthroughScene() {
   const selectedFloor = useAppStore((s) => s.selectedFloor);
@@ -174,6 +211,12 @@ export default function WalkthroughScene() {
 
         {/* HDRI environment — lighting + sky through openings. No manual lights. */}
         <Environment files={HDRI_PATH} background environmentIntensity={0.6} />
+
+        {/* 60fps guard: adaptive resolution within this device's profile bounds. */}
+        <AdaptiveSplatResolution
+          min={renderProfile.dpr[0]}
+          max={Math.min(renderProfile.dpr[1], 1.5)}
+        />
 
         <ApartmentModel
           apartmentKey={apartmentKey}

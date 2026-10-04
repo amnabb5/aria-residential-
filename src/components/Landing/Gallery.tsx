@@ -4,6 +4,7 @@
  * Gallery — a responsive mosaic of building/residence imagery.
  */
 import { Camera } from 'lucide-react';
+import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 const SHOTS = [
   { src: '/images/gallery-interior.png', title: 'The Residences', span: 'sm:col-span-2 sm:row-span-2' },
@@ -18,7 +19,7 @@ export function Gallery() {
   return (
     <section id="gallery" className="py-20 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col items-start justify-between gap-4 rounded-3xl border border-white/20 bg-background/70 p-8 shadow-lg backdrop-blur-md sm:flex-row sm:items-end">
+        <LiquidGlassSurface variant="panel" className="flex flex-col items-start justify-between gap-4 rounded-3xl p-8 shadow-lg sm:flex-row sm:items-end">
           <div className="max-w-2xl">
             <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-600">
               Gallery
@@ -31,7 +32,7 @@ export function Gallery() {
             <Camera className="h-4 w-4" />
             Renderings for illustration. Tour a unit in 3D to see the real thing.
           </p>
-        </div>
+        </LiquidGlassSurface>
 
         <div className="mt-10 grid auto-rows-[200px] grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {SHOTS.map((s, i) => (

@@ -52,8 +52,8 @@ const EXTERIOR_SPLAT_GROUP_POSITION: [number, number, number] = [19.04, -15.97, 
  * CITY OPTIMIZATION APPROACH (applies to the CITY SPLAT ONLY — its own
  * material; the room, lighting, camera behavior and every other scene part
  * are untouched):
- * The FULL-QUALITY capture is the single, permanent city model — no low-poly
- * stand-in, no decimated copy, no LOD swap of any kind. Performance comes
+ * The FULL-QUALITY capture is the single, permanent city model — no decimated
+ * copy is ever swapped in at runtime as the final render. Performance comes
  * from CAMERA-BASED CULLING of the full-quality splats instead:
  *
  *   • Frustum culling — the splat renderer's built-in per-splat viewport
@@ -81,6 +81,17 @@ const EXTERIOR_SPLAT_SRC = '/models/la_night_full.ksplat';
  * (Max-speed fallback: la_night_decimated.ksplat · max-quality: full.)
  */
 const EXTERIOR_SPLAT_MOBILE_SRC = '/models/la_night_mobile.ksplat';
+/**
+ * PROGRESSIVE STREAMING (asset, not renderer, change):
+ * While the tier's city splat (23–69 MB) streams in, the tiny 3.4 MB
+ * decimated capture renders first as an instant low-res preview — the
+ * skyline appears in ~1 s instead of blank for the full download. When the
+ * full-quality splat finishes loading, the preview unmounts (disposing its
+ * GPU data) and the high-fidelity capture takes over. The final render is
+ * ALWAYS the tier's selected splat — this only fills the initial blank-by-fs
+ * window with real content.
+ */
+const EXTERIOR_SPLAT_PREVIEW_SRC = '/models/la_night_decimated.ksplat';
 
 /**
  * Adaptive DPR (60fps target, quality-neutral):
@@ -341,16 +352,39 @@ function ExteriorSplat({
   /** City backdrop asset — full quality on desktop, decimated on phones. */
   src?: string;
 }) {
+  // ── Progressive streaming ─────────────────────────────────────────────────
+  // The tiny decimated capture renders first (instant skyline preview);
+  // when the tier's real asset finishes loading, the preview unmounts and
+  // its GPU data is disposed. If src IS the decimated asset (low tier),
+  // there is nothing to preview — skip the duplicate entirely.
+  const [fullLoaded, setFullLoaded] = useState(false);
+  useEffect(() => {
+    setFullLoaded(false);
+  }, [src]);
+  const showPreview = src !== EXTERIOR_SPLAT_PREVIEW_SRC && !fullLoaded;
+
   return (
     <group rotation={[0, Math.PI, 0]}>
       <group position={EXTERIOR_SPLAT_GROUP_POSITION}>
         <group position={position}>
-          {/* The one and only city model on this device: full-quality on
-              desktop, phone-tuned backdrop on mobile. Never swapped at
-              runtime, never decimated on the fly. Perf comes from
+          {showPreview && (
+            <GaussianSplat
+              key="splat-preview"
+              src={EXTERIOR_SPLAT_PREVIEW_SRC}
+              alphaThreshold={0.02}
+              scale={20.0}
+              rotation={[Math.PI, 0, 0]}
+              renderOrder={0}
+              gpuSort={gpuSort}
+              cameraCulling
+            />
+          )}
+          {/* The one and only final city model on this device: full-quality
+              on desktop, phone-tuned backdrop on mobile. Perf comes from
               camera-based culling — and the culling patch applies to THIS
               splat's material only. */}
           <GaussianSplat
+            key={src}
             src={src}
             alphaThreshold={0.02}
             scale={20.0}
@@ -358,6 +392,7 @@ function ExteriorSplat({
             renderOrder={1}
             gpuSort={gpuSort}
             cameraCulling
+            onLoaded={() => setFullLoaded(true)}
           />
         </group>
       </group>

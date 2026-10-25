@@ -100,6 +100,14 @@ const ORBIT_CAMERA_DEFAULT: [number, number, number] = [161.1, 37.58, 10.93];
 const ORBIT_TARGET: [number, number, number] = [77.09, 67.22, -1.63];
 const ORBIT_FOV = isMobileDevice() ? 62 : 50;
 const ORBIT_AUTOROTATE_SPEED = 0.4;
+/**
+ * Idle-orbit GPU gating: the cinematic autoRotate drift runs for at most
+ * ORBIT_DRIFT_MAX_MS after entering CITY_ORBIT (or until the user interacts),
+ * then the canvas drops to frameloop 'demand' — zero GPU load while the
+ * floor/unit selector is being browsed. Manual orbit/zoom still re-renders
+ * via OrbitControls 'change' events.
+ */
+const ORBIT_DRIFT_MAX_MS = 10000;
 const ZOOM_DURATION = 2.4;
 const ZOOM_FOV_END = 35;
 const FACADE_OFFSET = 30;
@@ -124,8 +132,10 @@ function useIsMobile() {
 // ─── Unified camera controller (lives INSIDE the Canvas) ─────────────────────
 function UnifiedCameraController({
   scrollProgressRef,
+  autoRotateActive,
 }: {
   scrollProgressRef: React.MutableRefObject<number>;
+  autoRotateActive: boolean;
 }) {
   const { camera, invalidate } = useThree();
   const stage = useAppStore((s) => s.stage);
@@ -155,6 +165,18 @@ function UnifiedCameraController({
     window.addEventListener('landing-scene-scroll', onScroll);
     return () => window.removeEventListener('landing-scene-scroll', onScroll);
   }, [invalidate]);
+
+  // In frameloop 'demand' mode nothing re-renders unless we invalidate.
+  // OrbitControls emits 'change' while the user drags/zooms AND while the
+  // damping friction settles — wire every change to invalidate() so manual
+  // orbiting works without the 'always' loop (idle-orbit GPU gating).
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const onChange = () => invalidate();
+    controls.addEventListener('change', onChange);
+    return () => controls.removeEventListener('change', onChange);
+  }, [stage, invalidate]);
 
   // When the roofline map finishes building (async, after the GLB decodes)
   // re-render once so the guard can lift the camera where needed.
@@ -349,7 +371,7 @@ function UnifiedCameraController({
           ref={controlsRef}
           makeDefault
           enablePan={debug}
-          autoRotate={!debug}
+          autoRotate={!debug && autoRotateActive && stage === 'CITY_ORBIT'}
           autoRotateSpeed={ORBIT_AUTOROTATE_SPEED}
           enableDamping
           dampingFactor={0.08}
@@ -501,6 +523,33 @@ export default function PersistentCityCanvas() {
   const hudRef = useRef<HTMLDivElement>(null);
   const scrollProgressRef = useRef(0);
 
+  // ── Idle-orbit GPU gating ─────────────────────────────────────────────────
+  // Cinematic autoRotate drift: active for a bounded window after entering
+  // CITY_ORBIT, stopped early by ANY user interaction. Afterwards the canvas
+  // runs frameloop 'demand' — zero GPU load while the selector is static.
+  const [orbitAutoActive, setOrbitAutoActive] = useState(false);
+  useEffect(() => {
+    if (stage !== 'CITY_ORBIT' || debug) {
+      setOrbitAutoActive(false);
+      return;
+    }
+    setOrbitAutoActive(true);
+    const stop = () => setOrbitAutoActive(false);
+    const capTimer = setTimeout(stop, ORBIT_DRIFT_MAX_MS);
+    const opts = { capture: true, passive: true } as AddEventListenerOptions;
+    document.addEventListener('pointerdown', stop, opts);
+    document.addEventListener('wheel', stop, opts);
+    document.addEventListener('keydown', stop, opts);
+    document.addEventListener('touchstart', stop, opts);
+    return () => {
+      clearTimeout(capTimer);
+      document.removeEventListener('pointerdown', stop, opts);
+      document.removeEventListener('wheel', stop, opts);
+      document.removeEventListener('keydown', stop, opts);
+      document.removeEventListener('touchstart', stop, opts);
+    };
+  }, [stage, debug]);
+
   // Mobile landing uses the optimized phone model; other stages always show 3D.
   const show3D =
     stage !== 'LANDING' || !isMobile || MOBILE_3D_ON_LANDING;
@@ -508,13 +557,18 @@ export default function PersistentCityCanvas() {
   // Determine the frameloop mode:
   // - 'never' when tab/window is hidden (zero background GPU/battery drain)
   // - 'demand' during scroll-driven landing (only re-render on scroll events)
-  // - 'always' during orbit/zoom/debug
+  // - 'always' during ZOOM_TRANSITION / debug (continuous camera motion)
+  // - CITY_ORBIT: 'always' only during the cinematic autoRotate drift window;
+  //   after the drift ends (timeout or first user interaction) → 'demand'
+  // (orbit re-renders on demand via OrbitControls 'change' → invalidate)
   const frameloop: 'always' | 'demand' | 'never' =
     !isTabVisible
       ? 'never'
       : stage === 'LANDING' && !debug
         ? 'demand'
-        : 'always';
+        : stage === 'CITY_ORBIT' && !debug && !orbitAutoActive
+          ? 'demand'
+          : 'always';
 
   // ── Scroll progress tracking (only needed during LANDING) ─────────────────
   useEffect(() => {
@@ -614,7 +668,10 @@ export default function PersistentCityCanvas() {
             <MainBuildingModel />
           </Suspense>
 
-          <UnifiedCameraController scrollProgressRef={scrollProgressRef} />
+          <UnifiedCameraController
+            scrollProgressRef={scrollProgressRef}
+            autoRotateActive={orbitAutoActive}
+          />
           <CameraReporter hudRef={hudRef} />
           {/* Never Preload all on mobile/iOS — it causes massive instantaneous VRAM spike */}
           {!isMobile && <Preload all />}

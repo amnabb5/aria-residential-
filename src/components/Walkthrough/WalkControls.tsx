@@ -50,6 +50,17 @@ const DEBUG_SPEED = 2.4;
 export const LOOK_SENSITIVITY = 0.0024;
 const PITCH_LIMIT = 1.4;
 
+// ---- Pacing (Commit 6: smooth controls) ----
+// Look deltas (mouse drag / gyro / touch) are consumed through a short
+// exponential ease instead of instantly, which removes the harsh 1-frame
+// snap on fast flicks while staying within ~2–4 frames of true input.
+const LOOK_EASE_RATE = 50;
+// Movement input (keyboard / joystick) accelerates and glides through the
+// same damped-approach easing the rest of the camera rig uses.
+const MOVE_EASE_RATE = 14;
+/** Below this smoothed magnitude (with zero raw input) the glide snaps to 0. */
+const MOVE_DEADZONE_SQ = 0.0004;
+
 // ---- Invisible boundary walls (see BOUNDARY_WALL_POINTS in apartments.ts) ----
 
 /** Player collision radius against the boundary walls (metres). */
@@ -93,6 +104,8 @@ export function WalkControls({ inputRef, spawn }: WalkControlsProps) {
   const rightVec = useRef(new THREE.Vector3());
   const upVec = useRef(new THREE.Vector3(0, 1, 0));
   const moveVec = useRef(new THREE.Vector3());
+  /** Smoothed movement input (damped approach toward the raw vector). */
+  const smoothMove = useRef(new THREE.Vector2());
 
   // Spawn the camera at the entry point.
   useEffect(() => {
@@ -170,17 +183,22 @@ export function WalkControls({ inputRef, spawn }: WalkControlsProps) {
     const cam = camera as THREE.PerspectiveCamera;
     const dt = Math.min(delta, 0.05);
 
-    // --- Look ---
+    // --- Look (eased consumption: a short glide instead of 1-frame snap) ---
     const look = inputRef.current.look;
     if (look.x !== 0 || look.y !== 0) {
-      cam.rotation.y -= look.x * LOOK_SENSITIVITY;
-      cam.rotation.x -= look.y * LOOK_SENSITIVITY;
+      const ease = 1 - Math.exp(-LOOK_EASE_RATE * dt);
+      const lx = look.x * ease;
+      const ly = look.y * ease;
+      look.x -= lx;
+      look.y -= ly;
+      if (Math.abs(look.x) < 1e-4) look.x = 0;
+      if (Math.abs(look.y) < 1e-4) look.y = 0;
+      cam.rotation.y -= lx * LOOK_SENSITIVITY;
+      cam.rotation.x -= ly * LOOK_SENSITIVITY;
       cam.rotation.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, cam.rotation.x));
-      look.x = 0;
-      look.y = 0;
     }
 
-    // --- Move ---
+    // --- Move (raw keyboard/joystick input) ---
     let mx = 0;
     let my = 0;
     const k = keys.current;
@@ -192,6 +210,21 @@ export function WalkControls({ inputRef, spawn }: WalkControlsProps) {
       mx = inputRef.current.move.x;
       my = inputRef.current.move.y;
     }
+
+    // --- Movement pacing: accelerate into the input, glide out of it ---
+    const smooth = smoothMove.current;
+    const moveEase = 1 - Math.exp(-MOVE_EASE_RATE * dt);
+    smooth.x += (mx - smooth.x) * moveEase;
+    smooth.y += (my - smooth.y) * moveEase;
+    if (mx === 0 && my === 0 && smooth.lengthSq() < MOVE_DEADZONE_SQ) {
+      smooth.set(0, 0);
+    }
+    mx = smooth.x;
+    my = smooth.y;
+    if (mx > 1) mx = 1;
+    else if (mx < -1) mx = -1;
+    if (my > 1) my = 1;
+    else if (my < -1) my = -1;
 
     if (mx !== 0 || my !== 0) {
       cam.getWorldDirection(forwardVec.current);

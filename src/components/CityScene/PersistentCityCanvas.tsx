@@ -25,9 +25,9 @@
  *   • Extra lights (directional + hemisphere) skipped on mobile
  *   • On-demand rendering when idle (no continuous loop during LANDING scroll)
  */
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState, Component, type ErrorInfo, type ReactNode } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Environment, OrbitControls, Preload } from '@react-three/drei';
+import { Environment, OrbitControls, Preload, useProgress } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import gsap from 'gsap';
 import * as THREE from 'three';
@@ -35,8 +35,8 @@ import { useAppStore, landingCameraRef, type Stage } from '@/state/useAppStore';
 import { MainBuildingModel } from '@/components/three/MainBuildingModel';
 import { LoadingOverlay } from '@/components/three/LoadingOverlay';
 import { CameraReporter, DebugHUD } from '@/components/debug/DebugHUD';
-import { HDRI_PATH } from '@/config/assets';
-import { getRenderProfile, isMobileDevice } from '@/config/perf';
+import { HDRI_PATH, resolveHdriPath } from '@/config/assets';
+import { getRenderProfile, isMobileDevice, isIOS } from '@/config/perf';
 import { BUILDING_CONFIG, floorWorldY } from '@/config/apartments';
 import {
   rooflineAt,
@@ -383,15 +383,70 @@ function DebugOrbitLanding({
   );
 }
 
+/**
+ * Reports loading progress and 3D readiness to global store
+ * so LandingBackground can display the luxury non-blocking status
+ * and smoothly cross-fade to the 3D scene when ready.
+ */
+function SceneLoadTracker() {
+  const { active, progress } = useProgress();
+  const set3DReady = useAppStore((s) => s.set3DReady);
+  const setSceneLoadProgress = useAppStore((s) => s.setSceneLoadProgress);
+
+  useEffect(() => {
+    setSceneLoadProgress(progress);
+    if (!active && progress === 100) {
+      const t = setTimeout(() => {
+        set3DReady(true);
+      }, 150);
+      return () => clearTimeout(t);
+    }
+  }, [active, progress, set3DReady, setSceneLoadProgress]);
+
+  return null;
+}
+
+/**
+ * Protects against WebGL crashes/OOM on constrained mobile devices.
+ */
+class WebGLErrorBoundary extends Component<
+  { children: ReactNode; fallback?: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode; fallback?: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.warn('[WebGL Boundary] WebGL crashed or failed on mobile device:', error, errorInfo);
+    useAppStore.getState().setWebglFailed(true);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback ?? null;
+    }
+    return this.props.children;
+  }
+}
+
 // ─── Main exported component ─────────────────────────────────────────────────
 export default function PersistentCityCanvas() {
   const stage = useAppStore((s) => s.stage);
   const debug = useAppStore((s) => s.debug);
-  const isMobile = useIsMobile();
+  const webglFailed = useAppStore((s) => s.webglFailed);
+  const setWebglFailed = useAppStore((s) => s.setWebglFailed);
+  const isMobile = useIsMobile() || isMobileDevice() || isIOS();
   const hudRef = useRef<HTMLDivElement>(null);
   const scrollProgressRef = useRef(0);
 
   const renderProfile = useMemo(() => getRenderProfile(), []);
+  const hdriPath = useMemo(() => resolveHdriPath(isMobile), [isMobile]);
 
   // Mobile landing uses the optimized phone model; other stages always show 3D.
   const show3D =
@@ -404,7 +459,7 @@ export default function PersistentCityCanvas() {
 
   // ── Scroll progress tracking (only needed during LANDING) ─────────────────
   useEffect(() => {
-    if (stage !== 'LANDING' || !show3D) return;
+    if (stage !== 'LANDING' || !show3D || webglFailed) return;
     let rafId = 0;
 
     const updateProgress = () => {
@@ -428,13 +483,11 @@ export default function PersistentCityCanvas() {
       window.removeEventListener('scroll', requestProgressUpdate);
       window.removeEventListener('resize', requestProgressUpdate);
     };
-  }, [stage, show3D]);
+  }, [stage, show3D, webglFailed]);
 
-  // Keep a gradient fallback available if mobile landing 3D is disabled.
-  if (!show3D) {
-    return (
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#3a4a6b] via-[#232b3d] to-[#141821]" />
-    );
+  // If WebGL failed or is disabled, gracefully fall back (LandingBackground provides 2D visual)
+  if (!show3D || webglFailed) {
+    return null;
   }
 
   // ── z-index logic ──
@@ -445,67 +498,83 @@ export default function PersistentCityCanvas() {
     <div
       className={`fixed inset-0 ${isLanding ? 'z-0' : 'z-40 bg-background'}`}
     >
-      <Canvas
-        frameloop={frameloop}
-        resize={isLanding ? { scroll: false, debounce: { scroll: 120, resize: 120 } } : undefined}
-        dpr={
-          renderProfile.mobile
-            ? [0.65, 0.9]        // Phone: lower DPR ceiling
-            : isLanding
-              ? [1, 1.5]         // Desktop landing: moderate
-              : [1, 2]           // Desktop orbit: full quality
-        }
-        gl={{
-          antialias: !renderProfile.mobile, // Skip AA on phones
-          alpha: false,
-          depth: true,
-          stencil: false,
-          toneMapping: THREE.ACESFilmicToneMapping,
-          powerPreference: renderProfile.mobile ? 'high-performance' : 'default',
-        }}
-        onCreated={({ gl }) => {
-          gl.outputColorSpace = THREE.SRGBColorSpace;
-          gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 0.92;
-          gl.shadowMap.enabled = false;
-        }}
-        camera={{
-          fov: ORBIT_FOV,
-          near: 0.5,
-          far: 3000,
-          position: KEYFRAMES[0].pos,
-        }}
-      >
-        {/* HDRI environment — lighting + visible sky. */}
-        <Environment
-          files={HDRI_PATH}
-          background
-          backgroundBlurriness={isLanding ? 0.03 : 0}
-          environmentIntensity={1}
-        />
+      <WebGLErrorBoundary fallback={null}>
+        <Canvas
+          frameloop={frameloop}
+          resize={isLanding ? { scroll: false, debounce: { scroll: 250, resize: 250 } } : undefined}
+          dpr={
+            isMobile
+              ? [0.65, 0.85]        // Phone/iOS: safe DPR ceiling preventing WebKit Jetsam kills
+              : isLanding
+                ? [1, 1.5]         // Desktop landing: moderate
+                : [1, 2]           // Desktop orbit: full quality
+          }
+          gl={{
+            antialias: !isMobile,
+            alpha: false,
+            depth: true,
+            stencil: false,
+            toneMapping: THREE.ACESFilmicToneMapping,
+            powerPreference: 'default', // Never use high-performance on iOS Safari
+            preserveDrawingBuffer: false,
+          }}
+          onCreated={({ gl }) => {
+            gl.outputColorSpace = THREE.SRGBColorSpace;
+            gl.toneMapping = THREE.ACESFilmicToneMapping;
+            gl.toneMappingExposure = 0.92;
+            gl.shadowMap.enabled = false;
 
-        {/* Extra lights only on desktop landing for stronger form. */}
-        {!renderProfile.mobile && isLanding && (
-          <>
-            <directionalLight
-              position={[125, 180, 90]}
-              intensity={1.1}
-              color="#ffe3bd"
-            />
-            <hemisphereLight args={['#dfefff', '#5a5048', 0.22]} />
-          </>
-        )}
+            // Handle iOS/mobile WebGL context loss gracefully without crashing the tab
+            const canvasEl = gl.domElement;
+            const onContextLost = (e: Event) => {
+              e.preventDefault();
+              console.warn('[WebGL] Context lost on device. Gracefully activating luxury 2D presentation.');
+              setWebglFailed(true);
+            };
+            canvasEl.addEventListener('webglcontextlost', onContextLost, false);
+          }}
+          camera={{
+            fov: ORBIT_FOV,
+            near: 0.5,
+            far: 3000,
+            position: KEYFRAMES[0].pos,
+          }}
+        >
+          <SceneLoadTracker />
 
-        <Suspense fallback={null}>
-          <MainBuildingModel />
-        </Suspense>
+          {/* HDRI environment — 1K on mobile (~6MB VRAM), 2K on desktop. */}
+          <Environment
+            files={hdriPath}
+            background
+            backgroundBlurriness={isLanding ? 0.03 : 0}
+            environmentIntensity={1}
+          />
 
-        <UnifiedCameraController scrollProgressRef={scrollProgressRef} />
-        <CameraReporter hudRef={hudRef} />
-        <Preload all />
-      </Canvas>
+          {/* Extra lights only on desktop landing for stronger form. */}
+          {!isMobile && isLanding && (
+            <>
+              <directionalLight
+                position={[125, 180, 90]}
+                intensity={1.1}
+                color="#ffe3bd"
+              />
+              <hemisphereLight args={['#dfefff', '#5a5048', 0.22]} />
+            </>
+          )}
 
-      <LoadingOverlay />
+          <Suspense fallback={null}>
+            <MainBuildingModel />
+          </Suspense>
+
+          <UnifiedCameraController scrollProgressRef={scrollProgressRef} />
+          <CameraReporter hudRef={hudRef} />
+          {/* Never Preload all on mobile/iOS — it causes massive instantaneous VRAM spike */}
+          {!isMobile && <Preload all />}
+        </Canvas>
+      </WebGLErrorBoundary>
+
+      {/* Only show modal loader outside landing, since LandingBackground handles landing progress */}
+      {!isLanding && <LoadingOverlay />}
       <DebugHUD hudRef={hudRef} />
     </div>
   );

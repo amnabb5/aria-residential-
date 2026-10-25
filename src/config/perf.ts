@@ -43,23 +43,34 @@ const PROFILES: RenderProfile[] = [
   { dpr: [1, 2], label: "high-end-gpu", gpuSort: true, mobile: false },
 ] as const;
 
-/** Phone profile: targets seamless ~40fps on a midrange phone. */
+/** Phone profile: targets seamless ~40-60fps on phones and prevents iOS Safari memory exhaustion. */
 const MOBILE_PROFILE: RenderProfile = {
-  dpr: [0.75, 1],
+  dpr: [0.65, 0.85],
   label: "mobile",
   gpuSort: false, // GPU compute sort is a desktop-only affordance
   mobile: true,
 };
 
 /**
- * Best-effort phone detection (coarse pointer + mobile UA + narrow screen).
- * Deliberately conservative: tablets with fine pointers fall back to the
- * desktop GPU tiers.
+ * Robust iOS detection (iPhone, iPad, iPod, including Safari desktop-mode MacIntel with touch).
+ */
+export function isIOS(): boolean {
+  if (typeof window === "undefined") return false;
+  const ua = navigator.userAgent;
+  return (
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" && (navigator.maxTouchPoints ?? 0) > 1)
+  );
+}
+
+/**
+ * Best-effort phone/touch device detection.
  */
 export function isMobileDevice(): boolean {
   if (typeof window === "undefined") return false;
+  if (isIOS()) return true;
   const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;
-  const mobileUA = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  const mobileUA = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   const narrow = window.innerWidth <= 820;
   return coarse && (mobileUA || narrow);
 }

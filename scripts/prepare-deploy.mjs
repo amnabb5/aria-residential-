@@ -55,6 +55,8 @@ async function main() {
     'models/la_night_medium.ksplat', // phone backdrop (mid option)
     'models/la_night_decimated.ksplat', // phone backdrop (fast option)
     'hdri/citrus_orchard_puresky_4k.hdr',
+    'hdri/citrus_orchard_puresky_2k.hdr', // desktop tier
+    'hdri/citrus_orchard_puresky_1k.hdr', // mobile/iOS safe tier (~6MB VRAM)
     'sw.js', // service worker (on-device caching)
   ];
 

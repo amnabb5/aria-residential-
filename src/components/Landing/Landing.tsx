@@ -20,6 +20,7 @@ import { Gallery } from './Gallery';
 import { Contact } from './Contact';
 import { Footer } from './Footer';
 import { FinalCTA } from './FinalCTA';
+import { LandingBackground } from './LandingBackground';
 
 export default function Landing() {
   // Smooth-scroll for in-page nav anchors.
@@ -33,6 +34,9 @@ export default function Landing() {
 
   return (
     <div className="relative min-h-screen bg-transparent">
+      {/* Luxury architectural presentation background — visible immediately from frame 0 */}
+      <LandingBackground />
+
       {/* Page content on top of the 3D scene (z-10 > canvas z-0). */}
       <div className="relative z-10 flex min-h-screen flex-col">
         <Navbar />

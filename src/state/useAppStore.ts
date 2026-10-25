@@ -44,6 +44,9 @@ interface AppState {
   hasRealModel: boolean;
   spawn: SpawnConfig | null;
   debug: boolean;
+  is3DReady: boolean;
+  sceneLoadProgress: number;
+  webglFailed: boolean;
 
   setStage: (stage: Stage) => void;
   selectFloor: (floor: number | null) => void;
@@ -53,6 +56,9 @@ interface AppState {
   backToOrbit: () => void;
   setDebug: (v: boolean) => void;
   toggleDebug: () => void;
+  set3DReady: (ready: boolean) => void;
+  setSceneLoadProgress: (progress: number) => void;
+  setWebglFailed: (failed: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -63,6 +69,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   hasRealModel: false,
   spawn: null,
   debug: false,
+  is3DReady: false,
+  sceneLoadProgress: 0,
+  webglFailed: false,
 
   setStage: (stage) => set({ stage }),
 
@@ -105,4 +114,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setDebug: (v) => set({ debug: v }),
   toggleDebug: () => set((s) => ({ debug: !s.debug })),
+  set3DReady: (is3DReady) => set({ is3DReady }),
+  setSceneLoadProgress: (sceneLoadProgress) => set({ sceneLoadProgress }),
+  setWebglFailed: (webglFailed) => set({ webglFailed }),
 }));

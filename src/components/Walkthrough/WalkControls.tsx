@@ -1,7 +1,4 @@
 'use client';
-/* eslint-disable react-hooks/immutability -- R3F's camera/gl are mutated
-   imperatively by design (the intended API for useThree values). The
-   react-hooks/immutability rule flags this as a false positive. */
 
 /**
  * WalkControls — first-person movement + look, runs inside the R3F Canvas.

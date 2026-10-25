@@ -59,8 +59,21 @@ export const apartmentModelMap: Record<string, string> = {
 /**
  * HDRI environment map — used by both scenes for PBR lighting/reflections,
  * and as the visible sky in the city scene.
+ *
+ * Optimized tiers:
+ *   - Desktop: 2K HDR (4.9MB) — fast loading, high fidelity reflections.
+ *   - Mobile/iOS: 1K HDR (1.29MB) — safe memory footprint (~6MB VRAM instead of 130MB+),
+ *     preventing WebGL context crashes and iOS Safari Jetsam terminations.
+ *   - 4K original kept available at /hdri/citrus_orchard_puresky_4k.hdr.
  */
-export const HDRI_PATH = '/hdri/citrus_orchard_puresky_4k.hdr';
+export const HDRI_PATH_4K = '/hdri/citrus_orchard_puresky_4k.hdr';
+export const HDRI_PATH_2K = '/hdri/citrus_orchard_puresky_2k.hdr';
+export const HDRI_PATH_MOBILE = '/hdri/citrus_orchard_puresky_1k.hdr';
+export const HDRI_PATH = HDRI_PATH_2K;
+
+export function resolveHdriPath(isMobile: boolean): string {
+  return isMobile ? HDRI_PATH_MOBILE : HDRI_PATH_2K;
+}
 
 /**
  * Draco decoder path (drei's useGLTF supports Draco-compressed GLBs).

@@ -36,7 +36,7 @@ import { MobileControls } from './MobileControls';
 import { MotionControls } from './MotionControls';
 import { LoadingOverlay } from '@/components/three/LoadingOverlay';
 import { CameraReporter, DebugHUD } from '@/components/debug/DebugHUD';
-import { HDRI_PATH } from '@/config/assets';
+import { HDRI_PATH, resolveHdriPath } from '@/config/assets';
 import { getRenderProfile } from '@/config/perf';
 import { ArrowLeft, Move, MousePointer2, Hand } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -191,6 +191,10 @@ export default function WalkthroughScene() {
 
   // Adaptive DPR: integrated GPUs get lower fill-rate to keep splat overdraw smooth.
   const renderProfile = useMemo(() => getRenderProfile(), []);
+  const hdriPath = useMemo(
+    () => resolveHdriPath(renderProfile.mobile),
+    [renderProfile.mobile]
+  );
 
   return (
     <div className="fixed inset-0 z-40 bg-[#1a1a1f]">
@@ -202,15 +206,13 @@ export default function WalkthroughScene() {
           // it multiplies fragment cost. Visually indistinguishable here.
           antialias: false,
           toneMapping: THREE.ACESFilmicToneMapping,
-          // Phones: request the high-performance GPU on dual-GPU devices.
-          // Desktop keeps its previous default ('default' hint).
-          powerPreference: renderProfile.mobile ? 'high-performance' : 'default',
+          powerPreference: 'default',
         }}
         camera={{ fov: 62, near: 0.1, far: 300, position: spawn.position }}
       >
 
-        {/* HDRI environment — lighting + sky through openings. No manual lights. */}
-        <Environment files={HDRI_PATH} background environmentIntensity={0.6} />
+        {/* HDRI environment — 1K on mobile (~6MB VRAM), 2K on desktop. */}
+        <Environment files={hdriPath} background environmentIntensity={0.6} />
 
         {/* 60fps guard: adaptive resolution within this device's profile bounds. */}
         <AdaptiveSplatResolution

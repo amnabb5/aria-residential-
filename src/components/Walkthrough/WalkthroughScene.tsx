@@ -99,11 +99,17 @@ const EXTERIOR_SPLAT_MOBILE_SRC = '/models/la_night_mobile.ksplat';
  * splat content, sort behavior, culling, asset selection and all other
  * optimizations are untouched.
  */
+/**
+ * Adaptive DPR-ONLY resolution scaling.
+ *
+ * IMPORTANT: this component ONLY adjusts the pixel ratio within the
+ * locked tier's DPR range. It does NOT shift the quality tier itself
+ * (Ultra→High→Medium→Low) — doing so mid-walkthrough would re-download
+ * HDRI/GLB/splat assets, causing a multi-second stutter. The tier is
+ * locked on walkthrough entry (see WalkthroughScene below).
+ */
 function AdaptiveSplatResolution({ min, max }: { min: number; max: number }) {
   const setDpr = useThree((s) => s.setDpr);
-  const qualityTier = useAppStore((s) => s.qualityTier);
-  const setQualityTier = useAppStore((s) => s.setQualityTier);
-  const qualityMode = useAppStore((s) => s.qualityMode);
 
   const clamp = (v: number) =>
     Math.round(THREE.MathUtils.clamp(v, min, max) * 100) / 100;
@@ -112,22 +118,8 @@ function AdaptiveSplatResolution({ min, max }: { min: number; max: number }) {
     <PerformanceMonitor
       ms={350}
       iterations={8}
-      // Runtime scaling with hysteresis: step down if sustained FPS < ~45, step up when headroom > 80
       bounds={() => [45, 80]}
       onChange={({ factor }) => setDpr(clamp(min + (max - min) * factor))}
-      onIncline={() => {
-        if (qualityMode === 'auto') {
-          if (qualityTier === 'low') setQualityTier('medium');
-          else if (qualityTier === 'medium') setQualityTier('high');
-        }
-      }}
-      onDecline={() => {
-        if (qualityMode === 'auto') {
-          if (qualityTier === 'ultra') setQualityTier('high');
-          else if (qualityTier === 'high') setQualityTier('medium');
-          else if (qualityTier === 'medium') setQualityTier('low');
-        }
-      }}
       flipflops={3}
       onFallback={() => setDpr(min)}
     />

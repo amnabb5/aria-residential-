@@ -340,12 +340,21 @@ export function GaussianSplat({
       loadedRef.current = false;
       initialRenders.current = 0;
       clearTimeout(timer);
-      if (viewerRef.current) {
-        if (containerRef.current) {
-          containerRef.current.remove(viewerRef.current as unknown as THREE.Object3D);
-        }
-        viewerRef.current.dispose().catch(() => {});
-        viewerRef.current = null;
+      // Capture refs before clearing — clearing viewerRef immediately stops
+      // useFrame from calling update() on a disposing viewer.
+      const deadViewer = viewerRef.current;
+      const parent = containerRef.current;
+      viewerRef.current = null;
+      if (deadViewer) {
+        // Dispose first, THEN remove from scene graph to avoid GPU texture
+        // leaks (the old code removed synchronously while dispose ran async).
+        deadViewer.dispose()
+          .catch(() => {})
+          .finally(() => {
+            if (parent) {
+              try { parent.remove(deadViewer as unknown as THREE.Object3D); } catch {}
+            }
+          });
       }
     };
   }, [src, ctxRestoreEpoch]);

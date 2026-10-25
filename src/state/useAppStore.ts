@@ -26,6 +26,7 @@ import {
   getSavedQualityMode,
   saveQualityMode,
   detectHardwareTier,
+  runStartupBenchmark,
 } from '@/config/perf';
 
 export type Stage = 'LANDING' | 'LANDING_TO_CITY_TRANSITION' | 'CITY_ORBIT' | 'ZOOM_TRANSITION' | 'WALKTHROUGH';
@@ -73,6 +74,8 @@ interface AppState {
   setQualityMode: (mode: QualityMode) => void;
   setQualityTier: (tier: QualityTier) => void;
   setIsTabVisible: (visible: boolean) => void;
+  /** Runs the boot GPU benchmark once and applies the result in 'auto' mode. */
+  calibrateAutoTier: () => Promise<QualityTier | null>;
 }
 
 const initialQualityMode = getSavedQualityMode();
@@ -148,6 +151,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setQualityTier: (qualityTier) => set({ qualityTier }),
   setIsTabVisible: (isTabVisible) => set({ isTabVisible }),
+
+  calibrateAutoTier: async () => {
+    // Manual quality selection always wins — never override it.
+    if (get().qualityMode !== 'auto') return null;
+    const tier = await runStartupBenchmark();
+    // The user may have picked a manual mode while the benchmark ran.
+    if (get().qualityMode === 'auto') set({ qualityTier: tier });
+    return tier;
+  },
 }));
 
 if (typeof window !== 'undefined') {

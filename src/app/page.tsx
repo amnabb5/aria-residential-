@@ -39,6 +39,10 @@ export default function Home() {
 
   useEffect(() => {
     useI18nStore.getState().initLanguage();
+    // Boot GPU calibration: measures the actual rendering adapter once and
+    // refines the auto quality tier before any 3D stage is entered (no-op
+    // when the user has a manual quality mode selected).
+    void useAppStore.getState().calibrateAutoTier();
   }, []);
 
   return (

@@ -16,16 +16,16 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Aria Residences — Tour Any Apartment in 3D",
-  description: "Aria Residences: twenty floors of design-forward homes. Pick a floor, choose a unit, and step inside for a first-person 3D walkthrough — right in your browser.",
+  description: "Aria Residences: 30 floors of design-forward homes. Pick a floor, choose a unit, and step inside for a first-person 3D walkthrough — right in your browser.",
   keywords: ["Aria Residences", "apartments", "3D walkthrough", "real estate", "luxury living", "Next.js", "React Three Fiber"],
   authors: [{ name: "Aria Residences" }],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/logo.svg",
   },
   openGraph: {
     title: "Aria Residences — Tour Any Apartment in 3D",
     description: "Pick a floor, choose a unit, and step inside for a first-person 3D walkthrough.",
-    url: "https://chat.z.ai",
+    url: "https://aria-residential.onrender.com",
     siteName: "Aria Residences",
     type: "website",
   },

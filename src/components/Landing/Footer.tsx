@@ -23,7 +23,7 @@ export function Footer() {
               <span className="text-sm font-semibold">{BUILDING_NAME}</span>
             </div>
             <p className="mt-3 text-sm text-stone-600">
-              Twenty floors of design-forward residences. Tour any unit in 3D,
+              30 floors of design-forward residences. Tour any unit in 3D,
               right from your browser.
             </p>
           </div>

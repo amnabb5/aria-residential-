@@ -53,19 +53,41 @@ export function GLTFModel({
   // useGLTF(path, useDraco) — passing the decoder path enables Draco decoding.
   const { scene } = useGLTF(path, DRACO_DECODER_PATH);
 
-  // Keep glTF scene cache intact across stage switches (WALKTHROUGH <-> CITY_ORBIT)
-  // Three.js manages GPU buffers automatically when canvases mount and unmount.
+  // Dispose GPU geometries and textures on unmount when requested (e.g. mobile or previous unit)
+  useEffect(() => {
+    return () => {
+      if (disposeOnUnmount) {
+        scene.traverse((obj) => {
+          const mesh = obj as THREE.Mesh;
+          if (mesh.isMesh) {
+            mesh.geometry?.dispose();
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            mats.forEach((m) => {
+              if (m) {
+                Object.keys(m).forEach((key) => {
+                  const val = (m as any)[key];
+                  if (val && typeof val.dispose === 'function') {
+                    try { val.dispose(); } catch {}
+                  }
+                });
+                try { m.dispose(); } catch {}
+              }
+            });
+          }
+        });
+        try { useGLTF.clear(path); } catch {}
+      }
+    };
+  }, [scene, path, disposeOnUnmount]);
 
-  // Enable shadows on every mesh + (dev only) report material health.
+  // Enable shadows on every mesh only if renderer supports them + (dev only) report material health.
   useEffect(() => {
     let missing = 0;
     let defaultMat = 0;
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      // Diagnose material health (dev only — helps spot model-side issues).
+      // Dev only material diagnosis
       if (process.env.NODE_ENV !== 'production') {
         const m = mesh.material;
         if (!m || (Array.isArray(m) ? m.length === 0 : false)) {

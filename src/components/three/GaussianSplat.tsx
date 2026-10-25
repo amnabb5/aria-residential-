@@ -146,24 +146,37 @@ export function GaussianSplat({
   const scaleVec = useMemo(() => normaliseScale(scale), [scale]);
   const iso = useMemo(() => isCrossOriginIsolated(), []);
 
-  // ---- Manually drive the viewer's update loop every frame ----
-  // Three.js 0.185 deprecated THREE.Clock and may not reliably fire
-  // onBeforeRender for the DropInViewer's internal callback mesh.
-  // Explicitly calling viewer.update() from useFrame guarantees splats
-  // get sorted and rendered every frame.
+  const lastCamMatrix = useRef(new THREE.Matrix4());
+  const cameraMoved = useRef(true);
+  const initialRenders = useRef(0);
+
+  // ---- Drive the viewer's update loop ONLY when camera moves ----
+  // Splat sorting is view-dependent: when the camera is stationary, the sort
+  // order is invariant. Skipping redundant sort/render passes when still
+  // eliminates main-thread/WASM thrashing and battery drain.
   useFrame(() => {
     const dropInViewer = viewerRef.current as any;
     if (!dropInViewer || !loadedRef.current) return;
-    try {
-      // The inner viewer needs the renderer and camera passed explicitly.
-      // DropInViewer wraps Viewer; the actual update method is on the inner viewer.
-      if (dropInViewer.viewer && typeof dropInViewer.viewer.update === 'function') {
-        dropInViewer.viewer.update(renderer, camera);
-      } else if (typeof dropInViewer.update === 'function') {
-        dropInViewer.update(renderer, camera);
+
+    const matrixChanged = !camera.matrixWorld.equals(lastCamMatrix.current);
+    if (matrixChanged) {
+      lastCamMatrix.current.copy(camera.matrixWorld);
+      cameraMoved.current = true;
+    }
+
+    // Always sort the first 6 frames after load to ensure scene settle, then only when camera moves
+    if (cameraMoved.current || initialRenders.current < 6) {
+      if (!matrixChanged) cameraMoved.current = false;
+      initialRenders.current++;
+      try {
+        if (dropInViewer.viewer && typeof dropInViewer.viewer.update === 'function') {
+          dropInViewer.viewer.update(renderer, camera);
+        } else if (typeof dropInViewer.update === 'function') {
+          dropInViewer.update(renderer, camera);
+        }
+      } catch (err) {
+        // Silently ignore update errors during disposal
       }
-    } catch (err) {
-      // Silently ignore update errors (e.g. during disposal)
     }
   });
 
@@ -325,8 +338,12 @@ export function GaussianSplat({
     return () => {
       disposedRef.current = true;
       loadedRef.current = false;
+      initialRenders.current = 0;
       clearTimeout(timer);
       if (viewerRef.current) {
+        if (containerRef.current) {
+          containerRef.current.remove(viewerRef.current as unknown as THREE.Object3D);
+        }
         viewerRef.current.dispose().catch(() => {});
         viewerRef.current = null;
       }

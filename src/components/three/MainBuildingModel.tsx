@@ -16,26 +16,17 @@ import { GLTFModel } from './GLTFModel';
 import {
   USE_PLACEHOLDER_MODELS,
   MAIN_BUILDING_MODEL,
-  MAIN_BUILDING_MODEL_MOBILE,
 } from '@/config/assets';
-import { getRenderProfile } from '@/config/perf';
+import { QUALITY_TIERS } from '@/config/perf';
+import { useAppStore } from '@/state/useAppStore';
 import { buildCityHeightfield } from '@/components/CityScene/cityHeightfield';
 import { DRACO_DECODER_PATH } from '@/config/assets';
 
 export function MainBuildingModel() {
-  // MOBILE-ONLY model tier (hard 1.5GB model-memory cap on phones):
-  // phones load the texture-capped / re-welded variant; desktops load the
-  // exact same GLB they always have — the desktop code path is untouched.
-  // Detection is viewport/UA based (getRenderProfile → isMobileDevice),
-  // never a device-RAM check.
-  const modelPath = useMemo(() => {
-    try {
-      return getRenderProfile().mobile ? MAIN_BUILDING_MODEL_MOBILE : MAIN_BUILDING_MODEL;
-    } catch {
-      return MAIN_BUILDING_MODEL;
-    }
-  }, []);
-  const isMobile = modelPath === MAIN_BUILDING_MODEL_MOBILE;
+  const qualityTier = useAppStore((s) => s.qualityTier);
+  const tierConfig = QUALITY_TIERS[qualityTier] || QUALITY_TIERS.high;
+  const modelPath = tierConfig.cityBuildingModel || MAIN_BUILDING_MODEL;
+  const isMobile = tierConfig.mobile;
 
   if (USE_PLACEHOLDER_MODELS) {
     return (

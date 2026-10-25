@@ -494,21 +494,27 @@ export default function PersistentCityCanvas() {
   const stage = useAppStore((s) => s.stage);
   const debug = useAppStore((s) => s.debug);
   const webglFailed = useAppStore((s) => s.webglFailed);
-  const isMobile = useIsMobile() || isMobileDevice() || isIOS();
+  const qualityTier = useAppStore((s) => s.qualityTier);
+  const isTabVisible = useAppStore((s) => s.isTabVisible);
+  const tierConfig = QUALITY_TIERS[qualityTier] || QUALITY_TIERS.high;
+  const isMobile = tierConfig.mobile;
   const hudRef = useRef<HTMLDivElement>(null);
   const scrollProgressRef = useRef(0);
-
-  const renderProfile = useMemo(() => getRenderProfile(), []);
-  const hdriPath = useMemo(() => resolveHdriPath(isMobile), [isMobile]);
 
   // Mobile landing uses the optimized phone model; other stages always show 3D.
   const show3D =
     stage !== 'LANDING' || !isMobile || MOBILE_3D_ON_LANDING;
 
-  // Determine the frameloop mode: 'demand' during scroll-driven landing
-  // (only re-render on scroll events), 'always' during orbit/zoom/debug.
-  const frameloop: 'always' | 'demand' =
-    stage === 'LANDING' && !debug ? 'demand' : 'always';
+  // Determine the frameloop mode:
+  // - 'never' when tab/window is hidden (zero background GPU/battery drain)
+  // - 'demand' during scroll-driven landing (only re-render on scroll events)
+  // - 'always' during orbit/zoom/debug
+  const frameloop: 'always' | 'demand' | 'never' =
+    !isTabVisible
+      ? 'never'
+      : stage === 'LANDING' && !debug
+        ? 'demand'
+        : 'always';
 
   // ── Scroll progress tracking (only needed during LANDING) ─────────────────
   useEffect(() => {
@@ -558,15 +564,9 @@ export default function PersistentCityCanvas() {
         <Canvas
           frameloop={frameloop}
           resize={isLanding ? { scroll: false, debounce: { scroll: 250, resize: 250 } } : undefined}
-          dpr={
-            isMobile
-              ? [0.65, 0.85]        // Phone/iOS: safe DPR ceiling preventing WebKit Jetsam kills
-              : isLanding
-                ? [1, 1.5]         // Desktop landing: moderate
-                : [1, 2]           // Desktop orbit: full quality
-          }
+          dpr={tierConfig.dpr}
           gl={{
-            antialias: !isMobile,
+            antialias: tierConfig.antialias,
             alpha: false,
             depth: true,
             stencil: false,
@@ -578,28 +578,28 @@ export default function PersistentCityCanvas() {
             gl.outputColorSpace = THREE.SRGBColorSpace;
             gl.toneMapping = THREE.ACESFilmicToneMapping;
             gl.toneMappingExposure = 0.92;
-            gl.shadowMap.enabled = false;
+            gl.shadowMap.enabled = tierConfig.enableShadows;
           }}
           camera={{
             fov: ORBIT_FOV,
             near: 0.5,
-            far: 3000,
+            far: tierConfig.drawDistance,
             position: stage === 'CITY_ORBIT' ? ORBIT_CAMERA_DEFAULT : KEYFRAMES[0].pos,
           }}
         >
           <SceneLoadTracker />
           <WebGLContextWatcher />
 
-          {/* HDRI environment — 1K on mobile (~6MB VRAM), 2K on desktop. */}
+          {/* HDRI environment — tier-selected resolution. */}
           <Environment
-            files={hdriPath}
+            files={tierConfig.hdriPath}
             background
             backgroundBlurriness={isLanding ? 0.03 : 0}
             environmentIntensity={1}
           />
 
-          {/* Extra lights only on desktop landing for stronger form. */}
-          {!isMobile && isLanding && (
+          {/* Extra lights only when tier enables shadows on landing for stronger form. */}
+          {tierConfig.enableShadows && isLanding && (
             <>
               <directionalLight
                 position={[125, 180, 90]}

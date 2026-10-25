@@ -20,6 +20,14 @@ import {
 } from '@/config/apartments';
 import { resolveApartmentModelUrl } from '@/config/assets';
 
+import {
+  QualityTier,
+  QualityMode,
+  getSavedQualityMode,
+  saveQualityMode,
+  detectHardwareTier,
+} from '@/config/perf';
+
 export type Stage = 'LANDING' | 'LANDING_TO_CITY_TRANSITION' | 'CITY_ORBIT' | 'ZOOM_TRANSITION' | 'WALKTHROUGH';
 
 /**
@@ -47,6 +55,9 @@ interface AppState {
   is3DReady: boolean;
   sceneLoadProgress: number;
   webglFailed: boolean;
+  qualityMode: QualityMode;
+  qualityTier: QualityTier;
+  isTabVisible: boolean;
 
   setStage: (stage: Stage) => void;
   selectFloor: (floor: number | null) => void;
@@ -59,7 +70,14 @@ interface AppState {
   set3DReady: (ready: boolean) => void;
   setSceneLoadProgress: (progress: number) => void;
   setWebglFailed: (failed: boolean) => void;
+  setQualityMode: (mode: QualityMode) => void;
+  setQualityTier: (tier: QualityTier) => void;
+  setIsTabVisible: (visible: boolean) => void;
 }
+
+const initialQualityMode = getSavedQualityMode();
+const initialQualityTier =
+  initialQualityMode === 'auto' ? detectHardwareTier() : initialQualityMode;
 
 export const useAppStore = create<AppState>((set, get) => ({
   stage: 'LANDING',
@@ -72,6 +90,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   is3DReady: false,
   sceneLoadProgress: 0,
   webglFailed: false,
+  qualityMode: initialQualityMode,
+  qualityTier: initialQualityTier,
+  isTabVisible: typeof document !== 'undefined' ? !document.hidden : true,
 
   setStage: (stage) => set({ stage }),
 
@@ -118,4 +139,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   set3DReady: (is3DReady) => set({ is3DReady }),
   setSceneLoadProgress: (sceneLoadProgress) => set({ sceneLoadProgress }),
   setWebglFailed: (webglFailed) => set({ webglFailed }),
+
+  setQualityMode: (qualityMode) => {
+    saveQualityMode(qualityMode);
+    const qualityTier = qualityMode === 'auto' ? detectHardwareTier() : qualityMode;
+    set({ qualityMode, qualityTier });
+  },
+
+  setQualityTier: (qualityTier) => set({ qualityTier }),
+  setIsTabVisible: (isTabVisible) => set({ isTabVisible }),
 }));
+
+if (typeof window !== 'undefined') {
+  (window as unknown as { __useAppStore?: typeof useAppStore }).__useAppStore = useAppStore;
+
+  // Global tab visibility listener
+  document.addEventListener('visibilitychange', () => {
+    useAppStore.getState().setIsTabVisible(!document.hidden);
+  });
+}
+}

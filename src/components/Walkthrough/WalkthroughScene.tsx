@@ -37,7 +37,8 @@ import { MotionControls } from './MotionControls';
 import { LoadingOverlay } from '@/components/three/LoadingOverlay';
 import { CameraReporter, DebugHUD } from '@/components/debug/DebugHUD';
 import { HDRI_PATH, resolveHdriPath } from '@/config/assets';
-import { getRenderProfile } from '@/config/perf';
+import { getRenderProfile, QUALITY_TIERS } from '@/config/perf';
+import { QualitySelector } from '@/components/ui/QualitySelector';
 import { ArrowLeft, Move, MousePointer2, Hand } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -100,20 +101,35 @@ const EXTERIOR_SPLAT_MOBILE_SRC = '/models/la_night_mobile.ksplat';
  */
 function AdaptiveSplatResolution({ min, max }: { min: number; max: number }) {
   const setDpr = useThree((s) => s.setDpr);
+  const qualityTier = useAppStore((s) => s.qualityTier);
+  const setQualityTier = useAppStore((s) => s.setQualityTier);
+  const qualityMode = useAppStore((s) => s.qualityMode);
+
   const clamp = (v: number) =>
     Math.round(THREE.MathUtils.clamp(v, min, max) * 100) / 100;
+
   return (
     <PerformanceMonitor
-      ms={250}
-      iterations={10}
-      // Keep frame pacing in the 55–90fps band; below the lower bound the
-      // resolution yield kicks in, above it we climb back to full quality.
-      bounds={() => [55, 90]}
+      ms={350}
+      iterations={8}
+      // Runtime scaling with hysteresis: step down if sustained FPS < ~45, step up when headroom > 80
+      bounds={() => [45, 80]}
       onChange={({ factor }) => setDpr(clamp(min + (max - min) * factor))}
-      // Too much oscillation → settle at a stable sustainable point instead
-      // of flip-flopping (protects the feel of the controls).
+      onIncline={() => {
+        if (qualityMode === 'auto') {
+          if (qualityTier === 'low') setQualityTier('medium');
+          else if (qualityTier === 'medium') setQualityTier('high');
+        }
+      }}
+      onDecline={() => {
+        if (qualityMode === 'auto') {
+          if (qualityTier === 'ultra') setQualityTier('high');
+          else if (qualityTier === 'high') setQualityTier('medium');
+          else if (qualityTier === 'medium') setQualityTier('low');
+        }
+      }}
       flipflops={3}
-      onFallback={() => setDpr(clamp(min + (max - min) * 0.4))}
+      onFallback={() => setDpr(min)}
     />
   );
 }
@@ -189,50 +205,44 @@ export default function WalkthroughScene() {
     SPLAT_TOP_FLOOR_POSITION[2],
   ];
 
-  // Adaptive DPR: integrated GPUs get lower fill-rate to keep splat overdraw smooth.
-  const renderProfile = useMemo(() => getRenderProfile(), []);
-  const hdriPath = useMemo(
-    () => resolveHdriPath(renderProfile.mobile),
-    [renderProfile.mobile]
-  );
+  const qualityTier = useAppStore((s) => s.qualityTier);
+  const isTabVisible = useAppStore((s) => s.isTabVisible);
+  const tierConfig = QUALITY_TIERS[qualityTier] || QUALITY_TIERS.high;
 
   return (
     <div className="fixed inset-0 z-40 bg-[#1a1a1f]">
       <Canvas
-        dpr={[renderProfile.dpr[0], Math.min(renderProfile.dpr[1], 1.5)]}
+        frameloop={isTabVisible ? 'always' : 'never'}
+        dpr={tierConfig.dpr}
         gl={{
-          // PERF: MSAA is disabled — Gaussian splats have soft alpha edges
-          // that multisampling cannot improve, but with heavy splat overdraw
-          // it multiplies fragment cost. Visually indistinguishable here.
-          antialias: false,
+          antialias: tierConfig.antialias,
           toneMapping: THREE.ACESFilmicToneMapping,
           powerPreference: 'default',
         }}
-        camera={{ fov: 62, near: 0.1, far: 300, position: spawn.position }}
+        camera={{ fov: 62, near: 0.1, far: tierConfig.drawDistance, position: spawn.position }}
       >
-
-        {/* HDRI environment — 1K on mobile (~6MB VRAM), 2K on desktop. */}
-        <Environment files={hdriPath} background environmentIntensity={0.6} />
+        {/* HDRI environment — tier-selected resolution. */}
+        <Environment files={tierConfig.hdriPath} background environmentIntensity={0.6} />
 
         {/* 60fps guard: adaptive resolution within this device's profile bounds. */}
         <AdaptiveSplatResolution
-          min={renderProfile.dpr[0]}
-          max={Math.min(renderProfile.dpr[1], 1.5)}
+          min={tierConfig.dpr[0]}
+          max={tierConfig.dpr[1]}
         />
 
         <ApartmentModel
           apartmentKey={apartmentKey}
           spawn={spawn}
           onComingSoon={setComingSoon}
-          gpuSort={renderProfile.gpuSort}
+          gpuSort={tierConfig.gpuSort}
         />
 
         {/* The city scene via Gaussian Splatting — Y shifts down with floor number.
-            Phones render the decimated backdrop (perf profile); desktops the full one. */}
+            Tiers select the appropriate skyline budget (full / mobile / decimated). */}
         <ExteriorSplat
           position={splatPosition}
-          gpuSort={renderProfile.gpuSort}
-          src={renderProfile.mobile ? EXTERIOR_SPLAT_MOBILE_SRC : EXTERIOR_SPLAT_SRC}
+          gpuSort={tierConfig.gpuSort}
+          src={tierConfig.citySplatSrc}
         />
 
         <WalkControls inputRef={inputRef} spawn={spawn} />
@@ -242,7 +252,7 @@ export default function WalkthroughScene() {
       <LoadingOverlay label="Loading apartment" />
       <DebugHUD hudRef={hudRef} />
 
-      {/* Top bar: exit + apartment label */}
+      {/* Top bar: exit + apartment label + quality selector */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between p-3 sm:p-4">
         <Button
           variant="secondary"
@@ -253,11 +263,14 @@ export default function WalkthroughScene() {
           <ArrowLeft className="h-4 w-4" />
           Exit Walkthrough
         </Button>
-        {spec && (
-          <div className="pointer-events-none rounded-full bg-background/70 px-3 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-md sm:text-sm">
-            {apartmentKey} · {spec.beds} bed · {spec.facing}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <QualitySelector />
+          {spec && (
+            <div className="pointer-events-none rounded-full bg-background/70 px-3 py-1.5 text-xs font-medium text-foreground/80 backdrop-blur-md sm:text-sm">
+              {apartmentKey} · {spec.beds} bed · {spec.facing}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Crosshair (hidden in debug free-fly mode for clarity) */}

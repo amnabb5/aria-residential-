@@ -206,6 +206,8 @@ export function Navbar() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <QualitySelector className="hidden sm:block" />
+
           <Button onClick={goChoose} size="sm" className="shadow-md">
             {t('hero_cta')}
           </Button>

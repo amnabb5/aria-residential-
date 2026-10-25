@@ -4,6 +4,7 @@
  * Gallery — a responsive mosaic of building/residence imagery.
  */
 import { Camera } from 'lucide-react';
+import Image from 'next/image';
 import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
 
 const SHOTS = [
@@ -40,10 +41,11 @@ export function Gallery() {
               key={i}
               className={`group relative overflow-hidden rounded-2xl bg-stone-200 shadow-sm ${s.span}`}
             >
-              <img
+              <Image
                 src={s.src}
                 alt={s.title}
-                loading="lazy"
+                fill
+                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                 className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />

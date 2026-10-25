@@ -53,7 +53,7 @@ export function LandingBackground() {
             alt="Aria Residential Architecture"
             fill
             priority
-            sizes="100vw"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 100vw, 1920px"
             className="object-cover object-[center_35%] filter brightness-[0.88] contrast-[1.08]"
           />
         </div>

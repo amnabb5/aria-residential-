@@ -3,6 +3,7 @@
 /**
  * Location — a stylized map panel with the address and nearby points.
  */
+import Image from 'next/image';
 import { MapPin, Navigation, Clock } from 'lucide-react';
 import { useTranslation } from '@/i18n/dictionaries';
 import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
@@ -23,12 +24,13 @@ export function Location() {
         <div className="grid gap-12 lg:grid-cols-2 lg:gap-16">
           {/* Map */}
           <div className="relative overflow-hidden rounded-3xl border border-stone-200 bg-stone-100 shadow-sm">
-            <div className="aspect-[4/3] w-full">
-              <img
+            <div className="relative aspect-[4/3] w-full">
+              <Image
                 src="/images/location-map.png"
                 alt="Neighborhood map around Aria Residences"
+                fill
+                sizes="(max-width: 1024px) 100vw, 50vw"
                 className="h-full w-full object-cover"
-                loading="lazy"
               />
             </div>
             {/* Pin */}

@@ -3,6 +3,7 @@
 /**
  * About — building overview with an image and a short narrative + feature list.
  */
+import Image from 'next/image';
 import { Check } from 'lucide-react';
 import { useTranslation, type DictionaryKey } from '@/i18n/dictionaries';
 import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
@@ -22,12 +23,13 @@ export function About() {
       <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:gap-16 lg:px-8">
         {/* Image */}
         <div className="relative order-2 lg:order-1">
-          <div className="aspect-[4/3] overflow-hidden rounded-3xl bg-gradient-to-br from-stone-200 to-stone-300 shadow-lg">
-            <img
+          <div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-gradient-to-br from-stone-200 to-stone-300 shadow-lg">
+            <Image
               src="/images/gallery-interior.png"
               alt="A bright, modern apartment living room at Aria Residences"
+              fill
+              sizes="(max-width: 1024px) 100vw, 50vw"
               className="h-full w-full object-cover"
-              loading="lazy"
             />
           </div>
           <LiquidGlassSurface variant="chip" className="absolute -bottom-6 -right-4 hidden rounded-2xl p-4 shadow-xl sm:block">

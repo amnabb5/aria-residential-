@@ -166,11 +166,22 @@ function UnifiedCameraController({
     cam.fov = ORBIT_FOV;
     cam.near = 0.5;
     cam.far = 3000;
-    cam.position.set(...KEYFRAMES[0].pos);
-    lookTarget.current.set(...ORBIT_TARGET);
+    if (stage === 'CITY_ORBIT' || stage === 'LANDING_TO_CITY_TRANSITION') {
+      cam.position.set(...ORBIT_CAMERA_DEFAULT);
+      lookTarget.current.set(...ORBIT_TARGET);
+    } else {
+      cam.position.set(...KEYFRAMES[0].pos);
+      lookTarget.current.set(...ORBIT_TARGET);
+    }
     cam.updateProjectionMatrix();
     cam.lookAt(lookTarget.current);
-  }, [camera]);
+
+    const controls = controlsRef.current;
+    if (controls) {
+      controls.target.copy(lookTarget.current);
+      controls.update();
+    }
+  }, [camera, stage]);
 
   // ── Stage-transition logic ────────────────────────────────────────────────
 
@@ -181,9 +192,12 @@ function UnifiedCameraController({
     cam.fov = ORBIT_FOV;
     cam.updateProjectionMatrix();
 
-    // If we came from LANDING, keep camera where scroll left it (seamless).
-    // If we came from WALKTHROUGH, reset to default.
-    if (prevStageRef.current === 'WALKTHROUGH' || prevStageRef.current === 'ZOOM_TRANSITION') {
+    // If we came from WALKTHROUGH or remounted, position at default orbit
+    if (
+      prevStageRef.current === 'WALKTHROUGH' ||
+      prevStageRef.current === 'ZOOM_TRANSITION' ||
+      prevStageRef.current === 'CITY_ORBIT'
+    ) {
       cam.position.set(...ORBIT_CAMERA_DEFAULT);
       lookTarget.current.set(...ORBIT_TARGET);
       cam.lookAt(lookTarget.current);
@@ -407,6 +421,46 @@ function SceneLoadTracker() {
 }
 
 /**
+ * Monitors WebGL context while the Canvas is actively mounted.
+ * Cleans up cleanly on unmount without false-positive error flags.
+ */
+function WebGLContextWatcher() {
+  const { gl } = useThree();
+  const setWebglFailed = useAppStore((s) => s.setWebglFailed);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    let active = true;
+
+    const onLost = (e: Event) => {
+      // If unmounting, loseContext is called intentionally by R3F renderer disposal.
+      // Do NOT flag this as a WebGL failure.
+      if (!active) return;
+      e.preventDefault();
+      console.warn('[WebGL] Context lost unexpectedly while active.');
+      setWebglFailed(true);
+    };
+
+    const onRestored = () => {
+      if (!active) return;
+      console.info('[WebGL] Context restored.');
+      setWebglFailed(false);
+    };
+
+    canvas.addEventListener('webglcontextlost', onLost, false);
+    canvas.addEventListener('webglcontextrestored', onRestored, false);
+
+    return () => {
+      active = false;
+      canvas.removeEventListener('webglcontextlost', onLost);
+      canvas.removeEventListener('webglcontextrestored', onRestored);
+    };
+  }, [gl, setWebglFailed]);
+
+  return null;
+}
+
+/**
  * Protects against WebGL crashes/OOM on constrained mobile devices.
  */
 class WebGLErrorBoundary extends Component<
@@ -440,7 +494,6 @@ export default function PersistentCityCanvas() {
   const stage = useAppStore((s) => s.stage);
   const debug = useAppStore((s) => s.debug);
   const webglFailed = useAppStore((s) => s.webglFailed);
-  const setWebglFailed = useAppStore((s) => s.setWebglFailed);
   const isMobile = useIsMobile() || isMobileDevice() || isIOS();
   const hudRef = useRef<HTMLDivElement>(null);
   const scrollProgressRef = useRef(0);
@@ -485,9 +538,12 @@ export default function PersistentCityCanvas() {
     };
   }, [stage, show3D, webglFailed]);
 
-  // If WebGL failed or is disabled, gracefully fall back (LandingBackground provides 2D visual)
+  // If WebGL failed or is disabled, gracefully fall back
   if (!show3D || webglFailed) {
-    return null;
+    if (stage === 'LANDING') return null; // LandingBackground handles landing
+    return (
+      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#1a2333] via-[#0f1624] to-[#070b14]" />
+    );
   }
 
   // ── z-index logic ──
@@ -523,24 +579,16 @@ export default function PersistentCityCanvas() {
             gl.toneMapping = THREE.ACESFilmicToneMapping;
             gl.toneMappingExposure = 0.92;
             gl.shadowMap.enabled = false;
-
-            // Handle iOS/mobile WebGL context loss gracefully without crashing the tab
-            const canvasEl = gl.domElement;
-            const onContextLost = (e: Event) => {
-              e.preventDefault();
-              console.warn('[WebGL] Context lost on device. Gracefully activating luxury 2D presentation.');
-              setWebglFailed(true);
-            };
-            canvasEl.addEventListener('webglcontextlost', onContextLost, false);
           }}
           camera={{
             fov: ORBIT_FOV,
             near: 0.5,
             far: 3000,
-            position: KEYFRAMES[0].pos,
+            position: stage === 'CITY_ORBIT' ? ORBIT_CAMERA_DEFAULT : KEYFRAMES[0].pos,
           }}
         >
           <SceneLoadTracker />
+          <WebGLContextWatcher />
 
           {/* HDRI environment — 1K on mobile (~6MB VRAM), 2K on desktop. */}
           <Environment

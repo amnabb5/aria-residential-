@@ -108,9 +108,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       apartmentModelUrl: null,
       hasRealModel: false,
       spawn: null,
+      webglFailed: false,
     }),
 
-  backToOrbit: () => set({ stage: 'CITY_ORBIT' }),
+  backToOrbit: () => set({ stage: 'CITY_ORBIT', webglFailed: false }),
 
   setDebug: (v) => set({ debug: v }),
   toggleDebug: () => set((s) => ({ debug: !s.debug })),

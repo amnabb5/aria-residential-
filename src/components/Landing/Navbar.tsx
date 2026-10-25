@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Globe } from 'lucide-react';
 import { LiquidGlassSurface } from '@/components/ui/liquid-glass';
+import { QualitySelector } from '@/components/ui/QualitySelector';
 
 const LINKS: { href: string; labelKey: DictionaryKey }[] = [
   { href: '#about', labelKey: 'nav_about' },

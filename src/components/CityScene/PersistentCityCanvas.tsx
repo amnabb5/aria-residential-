@@ -36,7 +36,7 @@ import { MainBuildingModel } from '@/components/three/MainBuildingModel';
 import { LoadingOverlay } from '@/components/three/LoadingOverlay';
 import { CameraReporter, DebugHUD } from '@/components/debug/DebugHUD';
 import { HDRI_PATH, resolveHdriPath } from '@/config/assets';
-import { getRenderProfile, isMobileDevice, isIOS } from '@/config/perf';
+import { getRenderProfile, isMobileDevice, isIOS, QUALITY_TIERS } from '@/config/perf';
 import { BUILDING_CONFIG, floorWorldY } from '@/config/apartments';
 import {
   rooflineAt,

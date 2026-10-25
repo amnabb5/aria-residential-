@@ -158,4 +158,3 @@ if (typeof window !== 'undefined') {
     useAppStore.getState().setIsTabVisible(!document.hidden);
   });
 }
-}

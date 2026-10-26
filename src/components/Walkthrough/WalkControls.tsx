@@ -46,6 +46,8 @@ interface WalkControlsProps {
 const NORMAL_SPEED = 2.4;
 /** Debug free-fly speed — 80% slower than the old 12 u/s for careful tuning. */
 const DEBUG_SPEED = 2.4;
+/** Debug boost while Shift is held (k-mode fast travel across the scene). */
+const DEBUG_BOOST_MULTIPLIER = 20;
 /** Radians of view rotation per "pixel" of look delta (shared with MotionControls). */
 export const LOOK_SENSITIVITY = 0.0024;
 const PITCH_LIMIT = 1.4;
@@ -121,14 +123,15 @@ export function WalkControls({ inputRef, spawn }: WalkControlsProps) {
 
   // Keyboard listeners.
   useEffect(() => {
-    const isMoveKey = (k: string) =>
+const isMoveKey = (k: string) =>
       [
         'w', 'a', 's', 'd',
         'arrowup', 'arrowdown', 'arrowleft', 'arrowright',
+        'shift',
       ].includes(k.toLowerCase());
 
     const onDown = (e: KeyboardEvent) => {
-      if (isMoveKey(e.key)) {
+      if (e.key === 'Shift' || isMoveKey(e.key)) {
         keys.current.add(e.key.toLowerCase());
         if (e.key.startsWith('Arrow')) e.preventDefault();
       }
@@ -238,7 +241,11 @@ export function WalkControls({ inputRef, spawn }: WalkControlsProps) {
           .addScaledVector(forwardVec.current, my)
           .addScaledVector(rightVec.current, mx);
         if (moveVec.current.lengthSq() > 1) moveVec.current.normalize();
-        cam.position.addScaledVector(moveVec.current, DEBUG_SPEED * dt);
+        // Shift held → 20× debug boost (k-mode fast travel).
+        const speed =
+          DEBUG_SPEED *
+          (k.has('shift') ? DEBUG_BOOST_MULTIPLIER : 1);
+        cam.position.addScaledVector(moveVec.current, speed * dt);
       } else {
         // Normal: move in the XZ plane, eye height locked.
         forwardVec.current.y = 0;

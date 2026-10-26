@@ -4,13 +4,28 @@ import { useAppStore } from '@/state/useAppStore';
 import { QualityMode, QUALITY_TIERS } from '@/config/perf';
 import { Sliders, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export function QualitySelector({ className }: { className?: string }) {
   const qualityMode = useAppStore((s) => s.qualityMode);
   const qualityTier = useAppStore((s) => s.qualityTier);
   const setQualityMode = useAppStore((s) => s.setQualityMode);
   const [open, setOpen] = useState(false);
+
+  // The auto tier (e.g. "Auto (medium)") is hardware-derived, so it can NEVER
+  // match the server's SSR snapshot — not even via mounted-gating;
+  // React 19 still throws on the text diff. Instead: React renders ONLY the
+  // stable literal ('Auto' / mode). The dynamic tier suffix is written into
+  // the DOM imperatively via the ref after hydration — React never owns that
+  // text, so there is nothing to mismatch. When the mode itself changes,
+  // React rewrites the text node as usual.
+  const labelRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const el = labelRef.current;
+    if (!el) return;
+    el.textContent = qualityMode === 'auto' ? `Auto (${qualityTier})` : qualityMode;
+  }, [qualityMode, qualityTier]);
 
   const modes: { id: QualityMode; label: string }[] = [
     { id: 'auto', label: 'Auto' },
@@ -28,8 +43,8 @@ export function QualitySelector({ className }: { className?: string }) {
         title="Graphics Quality Settings"
       >
         <Sliders className="h-3.5 w-3.5 text-amber-500" />
-        <span className="uppercase tracking-wider text-[11px]">
-          {qualityMode === 'auto' ? `Auto (${qualityTier})` : qualityMode}
+        <span className="uppercase tracking-wider text-[11px] min-w-16 text-left inline-block">
+          {qualityMode === 'auto' ? 'Auto' : qualityMode}
         </span>
       </button>
 
@@ -57,6 +72,8 @@ export function QualitySelector({ className }: { className?: string }) {
                   )}
                 >
                   <span>{m.label}</span>
+                  {/* Only rendered after hydration (open is user-triggered),
+                      so the dynamic tier text here is hydration-safe. */}
                   {m.id === 'auto' && (
                     <span className="text-[10px] opacity-75 font-mono uppercase">
                       {qualityTier}

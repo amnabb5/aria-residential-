@@ -25,7 +25,7 @@
  * belt-and-suspenders fix.
  * ============================================================================
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { DropInViewer } from '@mkkellogg/gaussian-splats-3d';
 import * as THREE from 'three';
@@ -51,8 +51,122 @@ export interface GaussianSplatProps {
    * user — it only skips splats that could never rasterize correctly.
    */
   cameraCulling?: boolean;
+  /**
+   * REGION DELETE (city splats only): a axis-aligned rectangle in WORLD
+   * (walkthrough/HUD) coordinates — `xMin..xMax` (right/left) × `zMin..zMax`
+   * (front/back) — spanning ALL heights. Every splat inside that prism is
+   * culled in the vertex shader: it is never rendered and never processed
+   * (the asset itself is untouched). Use it to delete the capture's junk
+   * backdrop "rectangle" that shows up when flying outside the city in
+   * k-mode debug.
+   *
+   * The world→splat-shader-space mapping is derived at load time from the
+   * splat mesh's world matrix, so the rectangle is expressed in the same
+   * coordinates the DebugHUD shows.
+   */
+  cullRegion?: { xMin: number; xMax: number; zMin: number; zMax: number };
+  /**
+   * BEHIND-VIEW DELETE (city splats only): a FIXED world-space camera pose.
+   * Every splat in the half-space BEHIND that view (opposite side of the
+   * plane through `position` facing along the pose's forward direction) is
+   * culled in the vertex shader — never rendered, never processed, all
+   * heights. Use it to delete everything behind a viewpoint that the capture
+   * shows as junk. If the WRONG half is deleted, add π to the rotation's y.
+   */
+  cullBehind?: { position: [number, number, number]; rotation: [number, number, number] };
   /** Called once the splat scene has finished loading successfully. */
   onLoaded?: (splatMesh: THREE.Mesh | null) => void;
+}
+
+interface PlaneCull {
+  planePoint: THREE.Vector3;
+  planeDir: THREE.Vector3;
+}
+
+const CULL_POSE_HELPER_EULER = new THREE.Euler(0, 0, 0, 'XYZ');
+const CULL_POSE_HELPER_FORWARD = new THREE.Vector3(0, 0, -1);
+
+/**
+ * Converts a FIXED world-space camera pose into a half-space cull plane
+ * expressed in the vertex shader's `splatCenter` space (via the splat mesh's
+ * inverted world matrix — exact for any group nesting). "Behind" = the side
+ * the pose is NOT looking at; those splats get deleted.
+ */
+function computePlaneCull(
+  splatMesh: THREE.Mesh,
+  pose: { position: [number, number, number]; rotation: [number, number, number] }
+): PlaneCull | null {
+  try {
+    splatMesh.updateWorldMatrix(true, false);
+    const toLocal = new THREE.Matrix4().copy(splatMesh.matrixWorld).invert();
+
+    CULL_POSE_HELPER_EULER.set(pose.rotation[0], pose.rotation[1], pose.rotation[2], 'XYZ');
+    const forward = CULL_POSE_HELPER_FORWARD
+      .copy(new THREE.Vector3(0, 0, -1))
+      .applyEuler(CULL_POSE_HELPER_EULER);
+
+    const worldPoint = new THREE.Vector3(pose.position[0], pose.position[1], pose.position[2]);
+    const localPoint = worldPoint.clone().applyMatrix4(toLocal);
+    const localAim = worldPoint.clone().add(forward).applyMatrix4(toLocal);
+    const planeDir = localAim.sub(localPoint).normalize();
+
+    console.info(
+      `[GaussianSplat] behind-view delete: pose ${pose.position.join(', ')} rot ${pose.rotation.join(', ')} — ` +
+        `deleting everything behind it (kept side: forward ≈ (${forward.x.toFixed(3)}, ${forward.y.toFixed(3)}, ${forward.z.toFixed(3)}))`
+    );
+    return { planePoint: localPoint, planeDir };
+  } catch (err) {
+    console.warn('[GaussianSplat] behind-view cull computation failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Converts a WORLD-space X/Z rectangle (all heights) into an AABB in the
+ * vertex shader's `splatCenter` space, using the splat mesh's own world
+ * matrix (inverted) — exact, regardless of how many group transforms nest
+ * the splat (scale ×20, π-flips, per-floor offsets …).
+ */
+function computeRegionCull(
+  splatMesh: THREE.Mesh,
+  region: { xMin: number; xMax: number; zMin: number; zMax: number }
+): { regionMin: THREE.Vector3; regionMax: THREE.Vector3 } | null {
+  try {
+    splatMesh.updateWorldMatrix(true, false);
+    const toLocal = new THREE.Matrix4().copy(splatMesh.matrixWorld).invert();
+    const HUGE = 1e6;
+    const corner = new THREE.Vector3();
+    const min = new THREE.Vector3(Infinity, Infinity, Infinity);
+    const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+
+    const xs = [region.xMin, region.xMax];
+    const ys = [-HUGE, HUGE];
+    const zs = [region.zMin, region.zMax];
+    for (const x of xs) {
+      for (const y of ys) {
+        for (const z of zs) {
+          corner.set(x, y, z).applyMatrix4(toLocal);
+          min.min(corner);
+          max.max(corner);
+        }
+      }
+    }
+    // Small pad so splats straddling the rectangle's border fall inside it.
+    padRegionAabb(min, max, 1.0);
+    console.info(
+      `[GaussianSplat] region delete: world x[${region.xMin}, ${region.xMax}] z[${region.zMin}, ${region.zMax}] (all heights)` +
+        ` → shader-space [${min.toArray().map((v) => v.toFixed(1))} … ${max.toArray().map((v) => v.toFixed(1))}]`
+    );
+    return { regionMin: min, regionMax: max };
+  } catch (err) {
+    console.warn('[GaussianSplat] region-cull computation failed:', err);
+    return null;
+  }
+}
+
+function padRegionAabb(min: THREE.Vector3, max: THREE.Vector3, amount: number) {
+  min.x -= amount; min.y -= amount; min.z -= amount;
+  max.x += amount; max.y += amount; max.z += amount;
 }
 
 function eulerToQuat(e: [number, number, number]): [number, number, number, number] {
@@ -84,8 +198,16 @@ function normaliseScale(s: number | [number, number, number]): [number, number, 
  * The full splat geometry is untouched — this only affects which splats get
  * processed per frame. Gracefully no-ops (console warning) if the library's
  * shader signature ever changes.
+ *
+ * `regionCull` (optional): deletes every splat inside a WORLD-space X/Z
+ * prism (see the `cullRegion` prop) — the junk backdrop rectangle never
+ * renders.
  */
-function enableCameraCulling(splatMesh: THREE.Mesh) {
+function enableCameraCulling(
+  splatMesh: THREE.Mesh,
+  regionCull?: { regionMin: THREE.Vector3; regionMax: THREE.Vector3 },
+  planeCull?: PlaneCull
+) {
   const mats = splatMesh.material;
   const list = Array.isArray(mats) ? mats : [mats];
   let patched = 0;
@@ -95,11 +217,34 @@ function enableCameraCulling(splatMesh: THREE.Mesh) {
     const IF_LINE =
       'if (clipCenter.z < -clip || clipCenter.x < -clip || clipCenter.x > clip || clipCenter.y < -clip || clipCenter.y > clip) {';
     if (mat.vertexShader.includes(IF_LINE)) {
+      let extraConditions = regionCull
+        ? '\n         || any(lessThan(splatCenter, uCullRegionMin))' +
+          '\n         || any(greaterThan(splatCenter, uCullRegionMax))'
+        : '';
+      let uniformPrepends = '';
+      if (regionCull) {
+        uniformPrepends += 'uniform vec3 uCullRegionMin;\nuniform vec3 uCullRegionMax;\n';
+        mat.uniforms.uCullRegionMin = { value: regionCull.regionMin.clone() };
+        mat.uniforms.uCullRegionMax = { value: regionCull.regionMax.clone() };
+      }
+      if (planeCull) {
+        extraConditions +=
+          '\n         || dot(splatCenter - uCullPlanePoint, uCullPlaneDir) < 0.0';
+        uniformPrepends += 'uniform vec3 uCullPlanePoint;\nuniform vec3 uCullPlaneDir;\n';
+        mat.uniforms.uCullPlanePoint = { value: planeCull.planePoint.clone() };
+        mat.uniforms.uCullPlaneDir = { value: planeCull.planeDir.clone() };
+      }
+      if (!extraConditions) {
+        // Nothing beyond the behind-camera cull — leave the shader as-is.
+      }
       mat.vertexShader = mat.vertexShader.replace(
         IF_LINE,
-        `if (clipCenter.z < -clip || clipCenter.x < -clip || clipCenter.x > clip || clipCenter.y < -clip || clipCenter.y > clip
+        `if (clipCenter.z < -clip || clipCenter.x < -clip || clipCenter.x > clip || clipCenter.y < -clip || clipCenter.y > clip${extraConditions}
                  || viewCenter.z > 0.0) {`
       );
+      if (uniformPrepends) {
+        mat.vertexShader = uniformPrepends + mat.vertexShader;
+      }
       mat.userData.__cameraCulling = true;
       mat.needsUpdate = true;
       patched++;
@@ -130,6 +275,8 @@ export function GaussianSplat({
   renderOrder = 0,
   gpuSort = false,
   cameraCulling = false,
+  cullRegion,
+  cullBehind,
   onLoaded,
 }: GaussianSplatProps) {
   const containerRef = useRef<THREE.Group>(null);
@@ -150,11 +297,42 @@ export function GaussianSplat({
   const cameraMoved = useRef(true);
   const initialRenders = useRef(0);
 
+  /**
+   * Re-apply the cull shader patch whenever the splat material has been
+   * (re)built without it.
+   *
+   * WHY THIS EXISTS: SplatMesh.updateBuild() constructs a BRAND-NEW
+   * ShaderMaterial every time it rebuilds — and the DropInViewer streams the
+   * .ksplat in progressively (per-section), so the material is replaced
+   * AFTER addSplatScene()'s promise resolves. A one-time patch at load time
+   * is silently discarded, and the behind-camera/region culls never actually
+   * run. Flagging the material with `__cameraCulling` and re-checking each
+   * frame (one property read — free) re-patches any rebuilt material
+   * immediately.
+   */
+  const ensureCullPatch = useCallback(() => {
+    if (!cameraCulling && !cullRegion && !cullBehind) return;
+    const dropInViewer = viewerRef.current as unknown as
+      | { splatMesh?: THREE.Mesh | null }
+      | null;
+    const splatMesh = dropInViewer?.splatMesh as unknown as THREE.Mesh | null;
+    if (!splatMesh?.material || disposedRef.current) return;
+    const mats = Array.isArray(splatMesh.material) ? splatMesh.material : [splatMesh.material];
+    for (const m of mats) {
+      if ((m as THREE.ShaderMaterial).userData.__cameraCulling) continue;
+      const regionCull = cullRegion ? computeRegionCull(splatMesh, cullRegion) : undefined;
+      const planeCull = cullBehind ? computePlaneCull(splatMesh, cullBehind) : undefined;
+      enableCameraCulling(splatMesh, regionCull ?? undefined, planeCull ?? undefined);
+      break;
+    }
+  }, [cameraCulling, cullRegion, cullBehind]);
+
   // ---- Drive the viewer's update loop ONLY when camera moves ----
   // Splat sorting is view-dependent: when the camera is stationary, the sort
   // order is invariant. Skipping redundant sort/render passes when still
   // eliminates main-thread/WASM thrashing and battery drain.
   useFrame(() => {
+    ensureCullPatch();
     const dropInViewer = viewerRef.current as any;
     if (!dropInViewer || !loadedRef.current) return;
 
@@ -323,7 +501,9 @@ export function GaussianSplat({
             const splatMesh = viewer.splatMesh as unknown as THREE.Mesh | null;
             if (splatMesh) {
               splatMesh.renderOrder = renderOrder;
-              if (cameraCulling) enableCameraCulling(splatMesh);
+              // Apply (or re-apply) the cull patch immediately; the frame
+              // loop re-applies it whenever the library rebuilds its material.
+              ensureCullPatch();
             }
             onLoaded?.(splatMesh ?? null);
           }

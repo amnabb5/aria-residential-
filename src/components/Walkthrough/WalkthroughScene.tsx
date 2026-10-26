@@ -81,6 +81,41 @@ const EXTERIOR_SPLAT_SRC = '/models/la_night_full.ksplat';
  * (Max-speed fallback: la_night_decimated.ksplat · max-quality: full.)
  */
 const EXTERIOR_SPLAT_MOBILE_SRC = '/models/la_night_mobile.ksplat';
+
+/**
+ * BEHIND-VIEW DELETE — BAKED INTO THE ASSETS (city splats only; the interior
+ * splat is untouched):
+ *
+ * The four city ksplats (full / medium / mobile / decimated preview) were
+ * filtered offline with:
+ *   node scripts/filter-ksplat-plane.mjs --world-z -13.1 --delete-below
+ * Every splat BEHIND the view below is physically removed from the files, so
+ * it can never render — no runtime culling involved. (Mapping: world z =
+ * -14.73 + 20·dataZ because the outer Ry(π) group flips the offset too, so
+ * this cut is dataZ < 0.0815. Verified: behind-view render draws 0 splats.)
+ *
+ * The pose itself is retained ONLY for the k-mode debug plane visual.
+ */
+const CITY_DELETE_BEHIND_VIEW = {
+  position: [0.55, -0.92, -13.1] as [number, number, number],
+  rotation: [-0.0321, -15.6868, 0] as [number, number, number],
+};
+
+/** k-mode debug helper: magenta plane visualising the deleted half-space. */
+function DeleteRegionBox({
+  region,
+}: {
+  region: { position: [number, number, number]; rotation: [number, number, number] };
+}) {
+  const { plane, size } = useMemo(() => {
+    const euler = new THREE.Euler(region.rotation[0], region.rotation[1], region.rotation[2], 'XYZ');
+    const normal = new THREE.Vector3(0, 0, -1).applyEuler(euler);
+    const point = new THREE.Vector3(region.position[0], region.position[1], region.position[2]);
+    const p = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point);
+    return { plane: p, size: 2500 };
+  }, [region.position, region.rotation]);
+  return <planeHelper args={[plane, 0xff00ff, size]} />;
+}
 /**
  * PROGRESSIVE STREAMING (asset, not renderer, change):
  * While the tier's city splat (23–69 MB) streams in, the tiny 3.4 MB
@@ -250,6 +285,10 @@ export default function WalkthroughScene() {
 
         <WalkControls inputRef={inputRef} spawn={spawn} />
         <CameraReporter hudRef={hudRef} />
+
+        {/* k-mode only: magenta plane showing where the behind-view deletion
+            was baked into the city assets (for verification). */}
+        {debug && <DeleteRegionBox region={CITY_DELETE_BEHIND_VIEW} />}
       </Canvas>
 
       <LoadingOverlay label="Loading apartment" />

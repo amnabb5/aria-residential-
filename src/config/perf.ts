@@ -160,7 +160,8 @@ export function isMobileDevice(): boolean {
  * Classification:
  *   'discrete'          GeForce/RTX/Quadro, Radeon RX, Apple M2–M4 — strong
  *   'modern-integrated' Apple M1 / Ax, Iris Xe / Arc, Adreno 7xx, Mali-G7x
- *   'old-integrated'    Intel HD/UHD (pre-Xe), MX-series, Mali-4/5/6xx,
+ *   'old-integrated'    AMD Vega APU renderer (generic Radeon Graphics),
+ *                       Intel HD/UHD (pre-Xe), MX-series, older Mali,
  *                       PowerVR, SwiftShader/llvmpipe (fake/software)
  *   'unknown'           no DOM / blocked string (Safari masks it) → heuristics
  */
@@ -218,7 +219,7 @@ export function probeGpuRenderer(): { renderer: string; gpuClass: GpuClass } {
     ) {
       gpuClass = 'modern-integrated';
     } else if (
-      /intel.*(uhd|hd graphics|iris|arc)|apple a[1-9]\b|mali-|adreno|powervr|mx\d{3}/.test(
+      /radeon\s*\(tm\)\s*graphics|radeon graphics|intel.*(uhd|hd graphics|iris|arc)|apple a[1-9]\b|mali-|adreno|powervr|mx\d{3}/.test(
         r
       )
     ) {
@@ -425,8 +426,11 @@ export async function runStartupBenchmark(): Promise<QualityTier> {
     // a GPU that can't chew this benchmark faster than ~26 ms median can't
     // hold Ultra; a GPU finishing it under 11 ms has Ultra headroom.
     let tier = baseline;
-    if (result < 11) {
-      tier = shiftTier(baseline, +1); // measured fast → upgrade one tier
+    if (result < 11 && probeGpuRenderer().gpuClass !== 'old-integrated') {
+      // This fragment-only probe does not measure CPU splat sorting. In
+      // particular, it must not promote older shared-memory APUs such as the
+      // Ryzen 7 5800H Vega iGPU to a desktop tier based on an easy shader pass.
+      tier = shiftTier(baseline, +1);
     } else if (result > 40) {
       tier = shiftTier(baseline, -2);
     } else if (result > 26) {

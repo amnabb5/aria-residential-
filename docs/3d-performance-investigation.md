@@ -10,6 +10,8 @@ The walkthrough is mounted only after the persistent city canvas is removed, so 
 
 The Windows host queried for this investigation reports a Ryzen 7 5800H (8 cores / 16 threads), 16 GB installed as two 8 GB DDR4-3200 DIMMs, AMD Radeon(TM) Graphics, and an NVIDIA RTX 3060 Laptop GPU. Windows alone does not tell us which adapter Chrome assigns to this page. The new `GPU` line in the debug panel reports the WebGL renderer string of the actual scene context (when the browser exposes it).
 
+The generic `AMD Radeon(TM) Graphics` renderer previously matched neither the discrete Radeon patterns nor the integrated-GPU patterns. That left this 5800H iGPU classified as unknown, whose CPU/RAM fallback selected High on this host. It is now classified as an older Vega integrated GPU, which selects Medium on this 8-core/16 GB system. Since the startup probe measures fragment shading but not CPU splat sorting, it can no longer promote this class above its baseline; a slow probe may still lower it. A browser run is still needed to confirm that the actual page uses this adapter and measure the resulting frame rate.
+
 ## Likely causes, ranked as hypotheses
 
 1. **Splat sort and fill load.** Two scenes mean sorting and drawing roughly millions of translucent splats. The apartment remains full-sized even on Low. Fast camera rotation also makes CPU sorting more visible because sorts run asynchronously.
@@ -44,6 +46,7 @@ The panel reports FPS and average frame time over each half-second sample, DPR a
 | Production build | Successful | Successful after diagnostics |
 | Duplicate `viewer.update()` calls during R3F frame + DropInViewer callback | Present | Removed in commit `9646da7` |
 | Camera-based behind-eye culling on apartment | Off | On in commit `9646da7` |
+| Generic Ryzen 7 5800H Radeon iGPU classification | Unknown → High CPU/RAM fallback | Old integrated → Medium baseline; fragment probe cannot promote |
 | Runtime FPS / frame time / adapter / splat counts | Not available in app | Available with `?debug=1` |
 | Sustained FPS on Ryzen 7 5800H iGPU | Not captured | Requires browser run on affected hardware |
 

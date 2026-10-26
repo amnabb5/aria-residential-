@@ -10,7 +10,7 @@ The walkthrough is mounted only after the persistent city canvas is removed, so 
 
 The Windows host queried for this investigation reports a Ryzen 7 5800H (8 cores / 16 threads), 16 GB installed as two 8 GB DDR4-3200 DIMMs, AMD Radeon(TM) Graphics, and an NVIDIA RTX 3060 Laptop GPU. Windows alone does not tell us which adapter Chrome assigns to this page. The new `GPU` line in the debug panel reports the WebGL renderer string of the actual scene context (when the browser exposes it).
 
-The generic `AMD Radeon(TM) Graphics` renderer previously matched neither the discrete Radeon patterns nor the integrated-GPU patterns. That left this 5800H iGPU classified as unknown, whose CPU/RAM fallback selected High on this host. It is now classified as an older Vega integrated GPU, which selects Medium on this 8-core/16 GB system. Since the startup probe measures fragment shading but not CPU splat sorting, it can no longer promote this class above its baseline; a slow probe may still lower it. A browser run is still needed to confirm that the actual page uses this adapter and measure the resulting frame rate.
+The generic `AMD Radeon(TM) Graphics` renderer previously matched neither the discrete Radeon patterns nor the integrated-GPU patterns. It first fell through to the CPU/RAM fallback; a later classification correction assigned Medium. Same-host 1080p captures now show that Auto/Medium still dips under 30 FPS during camera panning, while Low remains above 43 FPS. The renderer is therefore classified separately as a weak Vega APU and starts at Low in Auto. The synthetic fragment probe is not allowed to promote this GPU class. Discrete GPUs retain their existing tiers, and the apartment splat remains full resolution on Low.
 
 ## Likely causes, ranked as hypotheses
 
@@ -20,7 +20,22 @@ The generic `AMD Radeon(TM) Graphics` renderer previously matched neither the di
 4. **Startup calibration mismatch.** The fragment-only probe is not representative of sorting two splat layers. It can choose a tier that underestimates the actual scene cost.
 5. **Memory pressure during load.** Network file sizes are not peak CPU/GPU memory. Decoding and upload temporarily hold multiple representations, and the city preview overlaps the final city while loading.
 
-These are source and workload findings, not a measured attribution of the reported stutter. A physical-device capture is needed to distinguish sort-bound, fill-bound and thermal/power-limited cases.
+1080p host captures confirm the performance difference between Auto/Medium and Low on the AMD iGPU. They do not isolate sorting from raster/fill cost, and they do not measure power or thermal throttling. Browser/GPU traces and the user's regular browser are still useful follow-up checks.
+
+## 1080p host measurements
+
+Captured in the local app in the embedded browser with `?debug=1`; the reported WebGL renderer was `ANGLE (AMD, AMD Radeon(TM) Graphics … Direct3D11)`. The browser was set to a 1920×1080 device-pixel viewport. Its 125% scaling produced a 1536×864 CSS viewport. The FPS values below are 500 ms HUD samples taken across 30 seconds. Camera motion used alternating 120 px horizontal look drags, keeping the player position fixed.
+
+| Fresh tier/run | FPS samples | DPR / framebuffer during capture | Loaded splats |
+| --- | ---: | --- | --- |
+| Auto → Medium, idle | 36.5 mean (35.6–37.1) | 0.75 / 1152×648 | Apartment 1,481,828 + city 515,159 |
+| Auto → Medium, moving | 37.2 mean (19.9–43.9) | 0.75 / 1152×648 | Apartment 1,481,828 + city 515,159 |
+| Low, idle | 43.2 mean (39.8–45.6) | adapted from 0.85 to 0.69 / 1059×596 by the end | Apartment 1,481,828 + city 72,865 |
+| Low, moving | 50.5 mean (43.8–53.8) | 0.69 / 1059×596 | Apartment 1,481,828 + city 72,865 |
+
+In this capture, Low improved moving-camera average by 13.3 FPS and raised the minimum sample from 19.9 to 43.8 FPS, while preserving the complete apartment splat. The city count fell by about 86%; DPR was also lower. These factors are coupled, so this does not prove whether sort time, transparency fill, or both dominate. In a separate non-fresh manual tier switch, the monitor had already reached its fallback and stopped sampling; that run was excluded from this table.
+
+After applying the new AMD APU rule and rebuilding, a fresh page in Auto displayed `Auto low`; entering the walkthrough loaded the same 72,865 city splats and 1,481,828 apartment splats. This verifies the new selection path, not a second 30-second performance run.
 
 ## Renderer options
 
@@ -46,9 +61,9 @@ The panel reports FPS and average frame time over each half-second sample, DPR a
 | Production build | Successful | Successful after diagnostics |
 | Duplicate `viewer.update()` calls during R3F frame + DropInViewer callback | Present | Removed in commit `9646da7` |
 | Camera-based behind-eye culling on apartment | Off | On in commit `9646da7` |
-| Generic Ryzen 7 5800H Radeon iGPU classification | Unknown → High CPU/RAM fallback | Old integrated → Medium baseline; fragment probe cannot promote |
+| Generic Ryzen 7 5800H Radeon iGPU classification | Unknown → High CPU/RAM fallback | Weak integrated → Low Auto baseline; fresh Auto walkthrough verified after rebuild |
 | Runtime FPS / frame time / adapter / splat counts | Not available in app | Available with `?debug=1` |
-| Sustained FPS on Ryzen 7 5800H iGPU | Not captured | Requires browser run on affected hardware |
+| 30-second AMD iGPU host capture | Not captured | Auto/Medium 37.2 FPS mean with 19.9 minimum; Low 50.5 mean with 43.8 minimum while panning |
 
 ## References checked
 

@@ -160,14 +160,15 @@ export function isMobileDevice(): boolean {
  * Classification:
  *   'discrete'          GeForce/RTX/Quadro, Radeon RX, Apple M2–M4 — strong
  *   'modern-integrated' Apple M1 / Ax, Iris Xe / Arc, Adreno 7xx, Mali-G7x
- *   'old-integrated'    AMD Vega APU renderer (generic Radeon Graphics),
- *                       Intel HD/UHD (pre-Xe), MX-series, older Mali,
+ *   'weak-integrated'   AMD Vega APU renderer (generic Radeon Graphics)
+ *   'old-integrated'    Intel HD/UHD (pre-Xe), MX-series, older Mali,
  *                       PowerVR, SwiftShader/llvmpipe (fake/software)
  *   'unknown'           no DOM / blocked string (Safari masks it) → heuristics
  */
 type GpuClass =
   | 'discrete'
   | 'modern-integrated'
+  | 'weak-integrated'
   | 'old-integrated'
   | 'unknown';
 
@@ -210,6 +211,11 @@ export function probeGpuRenderer(): { renderer: string; gpuClass: GpuClass } {
       gpuClass = 'discrete';
     } else if (/radeon rx|radeon pro v|firepro|rdna/.test(r)) {
       gpuClass = 'discrete';
+    } else if (/radeon\s*\(tm\)\s*graphics|radeon graphics/.test(r)) {
+      // Ryzen APUs that expose only the generic Vega renderer share system
+      // memory and have limited GPU throughput. 1080p scene captures on the
+      // target Ryzen 7 5800H measured best with the Low asset/resolution tier.
+      gpuClass = 'weak-integrated';
     } else if (/apple m[2-9]\b/.test(r)) {
       gpuClass = 'discrete'; // M2+ integrated GPUs comfortably Ultra-capable
     } else if (
@@ -219,7 +225,7 @@ export function probeGpuRenderer(): { renderer: string; gpuClass: GpuClass } {
     ) {
       gpuClass = 'modern-integrated';
     } else if (
-      /radeon\s*\(tm\)\s*graphics|radeon graphics|intel.*(uhd|hd graphics|iris|arc)|apple a[1-9]\b|mali-|adreno|powervr|mx\d{3}/.test(
+      /intel.*(uhd|hd graphics|iris|arc)|apple a[1-9]\b|mali-|adreno|powervr|mx\d{3}/.test(
         r
       )
     ) {
@@ -266,7 +272,14 @@ export function detectHardwareTier(): QualityTier {
 
   // ── Phones / tablets: always an in-house tuned tier (medium | low) ────────
   if (isMob) {
-    if (mem <= 2 || cores <= 4 || gpuClass === 'old-integrated') return 'low';
+    if (
+      mem <= 2 ||
+      cores <= 4 ||
+      gpuClass === 'old-integrated' ||
+      gpuClass === 'weak-integrated'
+    ) {
+      return 'low';
+    }
     return 'medium'; // modern flagships ∙ modern-integrated ∙ unknown (masked)
   }
 
@@ -281,6 +294,8 @@ export function detectHardwareTier(): QualityTier {
       return cores >= 6 && mem >= 8 ? 'high' : 'medium';
     case 'old-integrated':
       return mem <= 4 || cores <= 4 ? 'low' : 'medium';
+    case 'weak-integrated':
+      return 'low';
     default:
       // Unknown adapter (Safari / privacy-blocked renderer string): fall back
       // to CPU/RAM only. Conservative cap — Upgrade decisions come from the
@@ -426,7 +441,12 @@ export async function runStartupBenchmark(): Promise<QualityTier> {
     // a GPU that can't chew this benchmark faster than ~26 ms median can't
     // hold Ultra; a GPU finishing it under 11 ms has Ultra headroom.
     let tier = baseline;
-    if (result < 11 && probeGpuRenderer().gpuClass !== 'old-integrated') {
+    const gpuClass = probeGpuRenderer().gpuClass;
+    if (
+      result < 11 &&
+      gpuClass !== 'old-integrated' &&
+      gpuClass !== 'weak-integrated'
+    ) {
       // This fragment-only probe does not measure CPU splat sorting. In
       // particular, it must not promote older shared-memory APUs such as the
       // Ryzen 7 5800H Vega iGPU to a desktop tier based on an easy shader pass.

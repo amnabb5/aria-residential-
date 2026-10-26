@@ -20,6 +20,12 @@ export function DebugGate() {
 
   // Hydrate from localStorage once on mount.
   useEffect(() => {
+    // Query flag is useful for repeatable device profiling without changing
+    // the persisted preference: `?debug=1` enables the overlay for this load.
+    if (new URLSearchParams(window.location.search).get('debug') === '1') {
+      setDebug(true);
+      return;
+    }
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored === 'true') setDebug(true);
@@ -30,6 +36,7 @@ export function DebugGate() {
 
   // Persist on change.
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('debug') === '1') return;
     try {
       localStorage.setItem(STORAGE_KEY, debug ? 'true' : 'false');
     } catch {

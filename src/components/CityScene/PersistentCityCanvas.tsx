@@ -34,7 +34,7 @@ import * as THREE from 'three';
 import { useAppStore, landingCameraRef, type Stage } from '@/state/useAppStore';
 import { MainBuildingModel } from '@/components/three/MainBuildingModel';
 import { LoadingOverlay } from '@/components/three/LoadingOverlay';
-import { CameraReporter, DebugHUD } from '@/components/debug/DebugHUD';
+import { CameraReporter, PerformanceReporter, DebugHUD } from '@/components/debug/DebugHUD';
 import { HDRI_PATH, resolveHdriPath } from '@/config/assets';
 import { getRenderProfile, isMobileDevice, isIOS, QUALITY_TIERS } from '@/config/perf';
 import { BUILDING_CONFIG, floorWorldY } from '@/config/apartments';
@@ -521,6 +521,7 @@ export default function PersistentCityCanvas() {
   const tierConfig = QUALITY_TIERS[qualityTier] || QUALITY_TIERS.high;
   const isMobile = tierConfig.mobile;
   const hudRef = useRef<HTMLDivElement>(null);
+  const perfRef = useRef<HTMLDivElement>(null);
   const scrollProgressRef = useRef(0);
 
   // ── Idle-orbit GPU gating ─────────────────────────────────────────────────
@@ -673,6 +674,7 @@ export default function PersistentCityCanvas() {
             autoRotateActive={orbitAutoActive}
           />
           <CameraReporter hudRef={hudRef} />
+          <PerformanceReporter perfRef={perfRef} />
           {/* Never Preload all on mobile/iOS — it causes massive instantaneous VRAM spike */}
           {!isMobile && <Preload all />}
         </Canvas>
@@ -680,7 +682,7 @@ export default function PersistentCityCanvas() {
 
       {/* Only show modal loader outside landing, since LandingBackground handles landing progress */}
       {!isLanding && <LoadingOverlay />}
-      <DebugHUD hudRef={hudRef} />
+      <DebugHUD hudRef={hudRef} perfRef={perfRef} />
     </div>
   );
 }

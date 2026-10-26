@@ -31,6 +31,7 @@ import * as THREE from 'three';
 
 export interface GaussianSplatProps {
   src: string;
+  debugLabel?: string;
   position?: [number, number, number];
   rotation?: [number, number, number];
   scale?: number | [number, number, number];
@@ -277,6 +278,7 @@ export function GaussianSplat({
   cullRegion,
   cullBehind,
   onLoaded,
+  debugLabel,
 }: GaussianSplatProps) {
   const containerRef = useRef<THREE.Group>(null);
   const viewerRef = useRef<DropInViewer | null>(null);
@@ -472,6 +474,11 @@ export function GaussianSplat({
               // Apply (or re-apply) the cull patch immediately; the frame
               // loop re-applies it whenever the library rebuilds its material.
               ensureCullPatch();
+              if (debugLabel && typeof window !== 'undefined') {
+                const count = (splatMesh as THREE.Mesh & { getSplatCount?: () => number }).getSplatCount?.();
+                const counts = ((window as Window & { __ariaSplatCounts?: Record<string, number> }).__ariaSplatCounts ??= {});
+                if (typeof count === 'number') counts[debugLabel] = count;
+              }
             }
             onLoaded?.(splatMesh ?? null);
           }
@@ -492,6 +499,10 @@ export function GaussianSplat({
       const parent = containerRef.current;
       viewerRef.current = null;
       if (deadViewer) {
+        if (debugLabel && typeof window !== 'undefined') {
+          const counts = (window as Window & { __ariaSplatCounts?: Record<string, number> }).__ariaSplatCounts;
+          if (counts) delete counts[debugLabel];
+        }
         // Dispose first, THEN remove from scene graph to avoid GPU texture
         // leaks (the old code removed synchronously while dispose ran async).
         deadViewer.dispose()

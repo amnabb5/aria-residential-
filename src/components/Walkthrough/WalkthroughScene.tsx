@@ -35,7 +35,7 @@ import { WalkControls, type WalkInput } from './WalkControls';
 import { MobileControls } from './MobileControls';
 import { MotionControls } from './MotionControls';
 import { LoadingOverlay } from '@/components/three/LoadingOverlay';
-import { CameraReporter, DebugHUD } from '@/components/debug/DebugHUD';
+import { CameraReporter, PerformanceReporter, DebugHUD } from '@/components/debug/DebugHUD';
 import { HDRI_PATH, resolveHdriPath } from '@/config/assets';
 import { getRenderProfile, QUALITY_TIERS } from '@/config/perf';
 import { QualitySelector } from '@/components/ui/QualitySelector';
@@ -184,6 +184,7 @@ export default function WalkthroughScene() {
     look: { x: 0, y: 0 },
   });
   const hudRef = useRef<HTMLDivElement>(null);
+  const perfRef = useRef<HTMLDivElement>(null);
   const [isTouch, setIsTouch] = useState(false);
   const [comingSoon, setComingSoon] = useState(false);
   const [showHint, setShowHint] = useState(true);
@@ -285,6 +286,7 @@ export default function WalkthroughScene() {
 
         <WalkControls inputRef={inputRef} spawn={spawn} />
         <CameraReporter hudRef={hudRef} />
+        <PerformanceReporter perfRef={perfRef} />
 
         {/* k-mode only: magenta plane showing where the behind-view deletion
             was baked into the city assets (for verification). */}
@@ -292,7 +294,7 @@ export default function WalkthroughScene() {
       </Canvas>
 
       <LoadingOverlay label="Loading apartment" />
-      <DebugHUD hudRef={hudRef} />
+      <DebugHUD hudRef={hudRef} perfRef={perfRef} />
 
       {/* Top bar: exit + apartment label + quality selector */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between p-3 sm:p-4">
@@ -409,6 +411,7 @@ function ExteriorSplat({
           {showPreview && (
             <GaussianSplat
               key="splat-preview"
+              debugLabel="city-preview"
               src={EXTERIOR_SPLAT_PREVIEW_SRC}
               alphaThreshold={0.02}
               scale={20.0}
@@ -424,6 +427,7 @@ function ExteriorSplat({
               splat's material only. */}
           <GaussianSplat
             key={src}
+            debugLabel="city"
             src={src}
             alphaThreshold={0.02}
             scale={20.0}

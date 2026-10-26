@@ -75,6 +75,7 @@ export function ApartmentModel({ apartmentKey, spawn, onComingSoon, gpuSort = fa
       {isSplat ? (
         <GaussianSplat
           src={url}
+          debugLabel="apartment"
           alphaThreshold={0.1}
           scale={1}
           rotation={[Math.PI, Math.PI, 0]}

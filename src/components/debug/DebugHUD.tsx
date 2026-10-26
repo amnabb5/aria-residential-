@@ -22,11 +22,60 @@
  *   </Canvas>
  *   <DebugHUD hudRef={hudRef} />
  */
-import { useState, type RefObject } from 'react';
+import { useRef, useState, type RefObject } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useAppStore } from '@/state/useAppStore';
 
 type HudRef = RefObject<HTMLDivElement | null>;
+
+type PerfRef = RefObject<HTMLDivElement | null>;
+
+/** Collects counters from the actual WebGL context currently rendering this canvas. */
+export function PerformanceReporter({ perfRef }: { perfRef: PerfRef }) {
+  const { gl, size, viewport } = useThree();
+  const debug = useAppStore((s) => s.debug);
+  const qualityTier = useAppStore((s) => s.qualityTier);
+  const frameCount = useRef(0);
+  const elapsed = useRef(0);
+  const lastNow = useRef(0);
+  const fps = useRef(0);
+  const gpu = useRef('unavailable');
+
+  useFrame((_, delta) => {
+    if (!debug) return;
+    frameCount.current++;
+    elapsed.current += delta;
+    const now = performance.now();
+    if (!lastNow.current) {
+      lastNow.current = now;
+      try {
+        const ctx = gl.getContext();
+        const ext = ctx.getExtension('WEBGL_debug_renderer_info');
+        gpu.current = ext ? String(ctx.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : 'masked';
+      } catch { gpu.current = 'unavailable'; }
+    }
+    if (now - lastNow.current < 500) return;
+    fps.current = elapsed.current > 0 ? frameCount.current / elapsed.current : 0;
+    frameCount.current = 0;
+    elapsed.current = 0;
+    lastNow.current = now;
+
+    const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+    const heap = memory ? `${(memory.usedJSHeapSize / 1048576).toFixed(0)} MB` : 'n/a';
+    const counts = (window as Window & { __ariaSplatCounts?: Record<string, number> }).__ariaSplatCounts ?? {};
+    const splats = Object.entries(counts).map(([label, count]) => `${label} ${count.toLocaleString()}`).join(' · ') || 'loading';
+    const info = gl.info;
+    const dpr = viewport.dpr;
+    const el = perfRef.current;
+    if (!el) return;
+    el.textContent =
+      `${fps.current.toFixed(1)} FPS · ${(1000 / Math.max(fps.current, 0.01)).toFixed(1)} ms/frame · ${qualityTier}\n` +
+      `DPR ${dpr.toFixed(2)} · ${gl.domElement.width}×${gl.domElement.height} (${size.width}×${size.height} CSS px)\n` +
+      `draw ${info.render.calls} · tris ${info.render.triangles.toLocaleString()} · geo ${info.memory.geometries} · tex ${info.memory.textures}\n` +
+      `splats ${splats}\nGPU ${gpu.current}\nJS heap ${heap}`;
+  });
+  return null;
+}
 
 /** In-canvas: streams camera transform into the HUD div. */
 export function CameraReporter({ hudRef }: { hudRef: HudRef }) {
@@ -52,7 +101,7 @@ export function CameraReporter({ hudRef }: { hudRef: HudRef }) {
 }
 
 /** HTML overlay: the visible panel. Hidden unless debug is on. */
-export function DebugHUD({ hudRef }: { hudRef: HudRef }) {
+export function DebugHUD({ hudRef, perfRef }: { hudRef: HudRef; perfRef?: PerfRef }) {
   const debug = useAppStore((s) => s.debug);
   const toggleDebug = useAppStore((s) => s.toggleDebug);
   const [copied, setCopied] = useState(false);
@@ -96,6 +145,7 @@ export function DebugHUD({ hudRef }: { hudRef: HudRef }) {
           pos  —
           {'\n'}rot  —
         </div>
+        {perfRef && <div ref={perfRef} className="mt-1 whitespace-pre border-t border-amber-400/20 pt-1 text-amber-100/90">performance sampling…</div>}
         <div className="mt-1 flex items-center gap-3">
           <button
             onClick={onCopy}

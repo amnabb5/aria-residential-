@@ -10,7 +10,7 @@ The walkthrough is mounted only after the persistent city canvas is removed, so 
 
 The Windows host queried for this investigation reports a Ryzen 7 5800H (8 cores / 16 threads), 16 GB installed as two 8 GB DDR4-3200 DIMMs, AMD Radeon(TM) Graphics, and an NVIDIA RTX 3060 Laptop GPU. Windows alone does not tell us which adapter Chrome assigns to this page. The new `GPU` line in the debug panel reports the WebGL renderer string of the actual scene context (when the browser exposes it).
 
-The generic `AMD Radeon(TM) Graphics` renderer previously matched neither the discrete Radeon patterns nor the integrated-GPU patterns. It first fell through to the CPU/RAM fallback; a later classification correction assigned Medium. Same-host 1080p captures now show that Auto/Medium still dips under 30 FPS during camera panning, while Low remains above 43 FPS. The renderer is therefore classified separately as a weak Vega APU and starts at Low in Auto. The synthetic fragment probe is not allowed to promote this GPU class. Discrete GPUs retain their existing tiers, and the apartment splat remains full resolution on Low.
+The generic `AMD Radeon(TM) Graphics` renderer previously matched neither the discrete Radeon patterns nor the integrated-GPU patterns. It first fell through to the CPU/RAM fallback; a later classification correction assigned Medium. Same-host 1080p captures show Auto/Medium dipping under 30 FPS during camera panning, while Low remains above 43 FPS. Low is faster but visibly reduces city detail. Auto now treats this renderer as a weak Vega APU with a Medium minimum; adaptive resolution handles slow frames without switching to the reduced Low city asset. The synthetic fragment probe cannot promote this GPU class or push it below Medium. Discrete GPUs retain their existing tiers.
 
 ## Likely causes, ranked as hypotheses
 
@@ -61,7 +61,7 @@ The panel reports FPS and average frame time over each half-second sample, DPR a
 | Production build | Successful | Successful after diagnostics |
 | Duplicate `viewer.update()` calls during R3F frame + DropInViewer callback | Present | Removed in commit `9646da7` |
 | Camera-based behind-eye culling on apartment | Off | On in commit `9646da7` |
-| Generic Ryzen 7 5800H Radeon iGPU classification | Unknown → High CPU/RAM fallback | Weak integrated → Low Auto baseline; fresh Auto walkthrough verified after rebuild |
+| Generic Ryzen 7 5800H Radeon iGPU classification | Unknown → High CPU/RAM fallback | Weak integrated → Medium Auto minimum; adaptive resolution remains available |
 | Runtime FPS / frame time / adapter / splat counts | Not available in app | Available with `?debug=1` |
 | 30-second AMD iGPU host capture | Not captured | Auto/Medium 37.2 FPS mean with 19.9 minimum; Low 50.5 mean with 43.8 minimum while panning |
 

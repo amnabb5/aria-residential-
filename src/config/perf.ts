@@ -160,7 +160,8 @@ export function isMobileDevice(): boolean {
  * Classification:
  *   'discrete'          GeForce/RTX/Quadro, Radeon RX, Apple M2–M4 — strong
  *   'modern-integrated' Apple M1 / Ax, Iris Xe / Arc, Adreno 7xx, Mali-G7x
- *   'weak-integrated'   AMD Vega APU renderer (generic Radeon Graphics)
+ *   'weak-integrated'   AMD Vega APU renderer (generic Radeon Graphics),
+ *                       Medium minimum; adaptive DPR handles slow frames
  *   'old-integrated'    Intel HD/UHD (pre-Xe), MX-series, older Mali,
  *                       PowerVR, SwiftShader/llvmpipe (fake/software)
  *   'unknown'           no DOM / blocked string (Safari masks it) → heuristics
@@ -213,8 +214,8 @@ export function probeGpuRenderer(): { renderer: string; gpuClass: GpuClass } {
       gpuClass = 'discrete';
     } else if (/radeon\s*\(tm\)\s*graphics|radeon graphics/.test(r)) {
       // Ryzen APUs that expose only the generic Vega renderer share system
-      // memory and have limited GPU throughput. 1080p scene captures on the
-      // target Ryzen 7 5800H measured best with the Low asset/resolution tier.
+      // memory and have limited GPU throughput. Keep Auto at Medium for this
+      // class to preserve city detail; adaptive DPR can reduce pixel cost.
       gpuClass = 'weak-integrated';
     } else if (/apple m[2-9]\b/.test(r)) {
       gpuClass = 'discrete'; // M2+ integrated GPUs comfortably Ultra-capable
@@ -275,8 +276,7 @@ export function detectHardwareTier(): QualityTier {
     if (
       mem <= 2 ||
       cores <= 4 ||
-      gpuClass === 'old-integrated' ||
-      gpuClass === 'weak-integrated'
+      gpuClass === 'old-integrated'
     ) {
       return 'low';
     }
@@ -295,7 +295,7 @@ export function detectHardwareTier(): QualityTier {
     case 'old-integrated':
       return mem <= 4 || cores <= 4 ? 'low' : 'medium';
     case 'weak-integrated':
-      return 'low';
+      return 'medium';
     default:
       // Unknown adapter (Safari / privacy-blocked renderer string): fall back
       // to CPU/RAM only. Conservative cap — Upgrade decisions come from the
@@ -459,6 +459,10 @@ export async function runStartupBenchmark(): Promise<QualityTier> {
     // Phones: the high/ultra tiers pull desktop assets — hard-capped.
     if (isMobileDevice() && tier === 'ultra') tier = 'medium';
     if (isMobileDevice() && tier === 'high') tier = 'medium';
+    // Keep this Vega APU at Medium or higher in Auto. The synthetic probe can
+    // overstate scene performance, so use adaptive resolution rather than
+    // swapping to the visibly reduced Low city asset.
+    if (gpuClass === 'weak-integrated' && tier === 'low') tier = 'medium';
 
     cachedBenchmarkTier = tier;
     if (tier !== baseline) {

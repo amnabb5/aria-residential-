@@ -85,6 +85,9 @@ export function ApartmentModel({ apartmentKey, spawn, onComingSoon, gpuSort = fa
           // the city through walls while windows stay see-through.
           renderOrder={2}
           gpuSort={gpuSort}
+          // Skip splats behind the eye before rasterization; this removes no
+          // visible detail and is especially helpful for the interior capture.
+          cameraCulling
         />
       ) : (
         <GLTFModel

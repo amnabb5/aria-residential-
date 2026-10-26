@@ -6,7 +6,7 @@
  * ============================================================================
  *
  * Uses `DropInViewer` (a THREE.Group whose callbackMesh.onBeforeRender drives
- * viewer.update() every frame). Optimisations vs drei <Splat>:
+ * viewer.update() during rendering). Optimisations vs drei <Splat>:
  *   ✓ Octree frustum culling  ✓ WASM sort worker  ✓ Half-precision covariances
  *   ✓ Intermediate data freed  ✓ Full splat count (zero decimation)
  *
@@ -18,11 +18,10 @@
  * Includes WebGL context-loss recovery: if the main GL context is lost and
  * restored, the viewer is rebuilt so splat textures are re-uploaded.
  *
- * THREE.js 0.185+ compatibility: the DropInViewer's internal callbackMesh
- * relies on onBeforeRender to drive viewer.update(). In newer Three.js
- * versions this callback may not fire reliably for zero-area invisible meshes.
- * We now explicitly call viewer.update() every frame via useFrame as a
- * belt-and-suspenders fix.
+ * The DropInViewer callback mesh has real geometry and is not frustum culled,
+ * so its onBeforeRender callback updates the viewer before its splat mesh is
+ * drawn. Do not also call viewer.update() from useFrame: that duplicates the
+ * update on every moving-camera frame.
  * ============================================================================
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -282,7 +281,6 @@ export function GaussianSplat({
   const containerRef = useRef<THREE.Group>(null);
   const viewerRef = useRef<DropInViewer | null>(null);
   const disposedRef = useRef(false);
-  const loadedRef = useRef(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** Bumped on context-loss → triggers viewer rebuild. */
   const [ctxRestoreEpoch, setCtxRestoreEpoch] = useState(0);
@@ -292,10 +290,6 @@ export function GaussianSplat({
   const quaternion = useMemo(() => eulerToQuat(rotation), [rotation]);
   const scaleVec = useMemo(() => normaliseScale(scale), [scale]);
   const iso = useMemo(() => isCrossOriginIsolated(), []);
-
-  const lastCamMatrix = useRef(new THREE.Matrix4());
-  const cameraMoved = useRef(true);
-  const initialRenders = useRef(0);
 
   /**
    * Re-apply the cull shader patch whenever the splat material has been
@@ -327,35 +321,11 @@ export function GaussianSplat({
     }
   }, [cameraCulling, cullRegion, cullBehind]);
 
-  // ---- Drive the viewer's update loop ONLY when camera moves ----
-  // Splat sorting is view-dependent: when the camera is stationary, the sort
-  // order is invariant. Skipping redundant sort/render passes when still
-  // eliminates main-thread/WASM thrashing and battery drain.
+  // DropInViewer updates itself through its callback mesh immediately before
+  // drawing. This hook only reapplies shader culling after progressive loads
+  // rebuild the viewer's material.
   useFrame(() => {
     ensureCullPatch();
-    const dropInViewer = viewerRef.current as any;
-    if (!dropInViewer || !loadedRef.current) return;
-
-    const matrixChanged = !camera.matrixWorld.equals(lastCamMatrix.current);
-    if (matrixChanged) {
-      lastCamMatrix.current.copy(camera.matrixWorld);
-      cameraMoved.current = true;
-    }
-
-    // Always sort the first 6 frames after load to ensure scene settle, then only when camera moves
-    if (cameraMoved.current || initialRenders.current < 6) {
-      if (!matrixChanged) cameraMoved.current = false;
-      initialRenders.current++;
-      try {
-        if (dropInViewer.viewer && typeof dropInViewer.viewer.update === 'function') {
-          dropInViewer.viewer.update(renderer, camera);
-        } else if (typeof dropInViewer.update === 'function') {
-          dropInViewer.update(renderer, camera);
-        }
-      } catch (err) {
-        // Silently ignore update errors during disposal
-      }
-    }
   });
 
   // ---- WebGL context-loss recovery ----
@@ -384,7 +354,6 @@ export function GaussianSplat({
   useEffect(() => {
     if (!containerRef.current) return;
     disposedRef.current = false;
-    loadedRef.current = false;
     setLoadError(null);
 
     console.info(
@@ -428,7 +397,7 @@ export function GaussianSplat({
       sphericalHarmonicsDegree: 0,
 
       // Rendering
-      renderMode: 1,               // Always
+      renderMode: 1,               // OnChange
       sceneRevealMode: iso ? 1 : 2, // Gradual if SAB, else Instant
     });
 
@@ -484,7 +453,6 @@ export function GaussianSplat({
         })
         .then(() => {
           if (!disposedRef.current) {
-            loadedRef.current = true;
             console.info(`[GaussianSplat] loaded: ${src} (iso=${iso})`);
             // NOTE: do NOT force depthWrite on the splat material. Splat
             // transparency is resolved by per-frame SORTING, not the depth
@@ -517,11 +485,9 @@ export function GaussianSplat({
 
     return () => {
       disposedRef.current = true;
-      loadedRef.current = false;
-      initialRenders.current = 0;
       clearTimeout(timer);
-      // Capture refs before clearing — clearing viewerRef immediately stops
-      // useFrame from calling update() on a disposing viewer.
+      // Capture refs before clearing; the frame hook stops applying culling
+      // patches as soon as the viewer ref is cleared.
       const deadViewer = viewerRef.current;
       const parent = containerRef.current;
       viewerRef.current = null;
